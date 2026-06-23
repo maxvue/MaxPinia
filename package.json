@@ -1,0 +1,79 @@
+{
+    "name": "@maxvue/max-pinia",
+    "version": "0.1.0",
+    "description": "Plugin Pinia com cache offline (localforage) + sincronização automática com servidor (GET/POST), deduplicação de requisições e status reativo. Decoupled via injeção de config.",
+    "main": "./dist/index.es.js",
+    "module": "./dist/index.es.js",
+    "types": "./dist/index.d.ts",
+    "type": "module",
+    "sideEffects": false,
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.es.js"
+        }
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md"
+    ],
+    "scripts": {
+        "dev": "vite",
+        "build": "vue-tsc --noEmit && vite build",
+        "type-check": "vue-tsc --noEmit",
+        "preview": "vite preview",
+        "release": "npm run build && npm version patch -m 'Upgrade to %s' && git push origin main --follow-tags && npm publish --access public",
+        "prepublishOnly": "npm run build"
+    },
+    "dependencies": {
+        "localforage": "^1.10.0",
+        "lodash-es": "^4.18.1",
+        "ulid": "^3.0.2"
+    },
+    "peerDependencies": {
+        "@vueuse/core": "^14.0.0",
+        "axios": "^1.0.0",
+        "pinia": "^3.0.0",
+        "vue": "^3.5.0"
+    },
+    "devDependencies": {
+        "@types/lodash-es": "^4.17.12",
+        "@types/node": "^25.9.1",
+        "@vueuse/core": "^14.3.0",
+        "axios": "^1.16.1",
+        "pinia": "^3.0.4",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.14",
+        "vite-plugin-dts": "^5.0.1",
+        "vue": "^3.6.0-beta.16",
+        "vue-tsc": "^3.3.2"
+    },
+    "keywords": [
+        "pinia",
+        "vue",
+        "vue3",
+        "plugin",
+        "cache",
+        "offline",
+        "localforage",
+        "typescript",
+        "store"
+    ],
+    "author": "Johnattas Santana",
+    "license": "MIT",
+    "homepage": "https://github.com/maxvue/MaxPinia#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/maxvue/MaxPinia.git"
+    },
+    "bugs": {
+        "url": "https://github.com/maxvue/MaxPinia/issues"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "publishConfig": {
+        "access": "public"
+    }
+}
