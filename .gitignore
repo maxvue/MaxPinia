@@ -3,3 +3,10 @@ dist
 *.log
 .DS_Store
 .vite
+*.tsbuildinfo
+
+# Ferramentas de IA / configs locais
+.agents/
+.claude/
+.gemini
+CLAUDE.md
