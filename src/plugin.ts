@@ -1,4 +1,4 @@
-import { ref, computed, watch, toValue, type Ref } from 'vue';
+import { ref, computed, watch, toValue, toRaw, type Ref } from 'vue';
 import type { PiniaPlugin, PiniaPluginContext } from 'pinia';
 import localforage from 'localforage';
 import { cloneDeep, size, isEqual, unset } from 'lodash-es';
@@ -9,7 +9,7 @@ import { useDefaultReset, watchValid, getIn, anyIsFalseIn, isNotEmpty } from './
 
 const isBlank = (v: any): boolean => !isNotEmpty(v);
 
-function buildUrl(url: string, params?: Record<string, any>): string {
+export function buildUrl(url: string, params?: Record<string, any>): string {
     if (!params || Object.keys(params).length === 0) return url;
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined) qs.append(k, String(v));
@@ -97,8 +97,9 @@ function maxPiniaPlugin(
     const getInDeduplication = () => store?.in_deduplication ?? store?.options?.in_deduplication ?? store?.in_get_deduplication ?? store?.options?.in_get_deduplication ?? 'last';
     const getRouteName = (): string | null => getIn(store, ['options.get.route', 'options.get.get', 'options.get', 'options.get_route', 'options.route_get', 'options.route']);
     const getRouteData = () => {
-        const data_return = store?.get_data ?? store?.data_get ?? store?.options?.get?.data ?? {};
-        for (const k in data_return) data_return[k] = data_return[k]?.value ?? data_return[k];
+        const source = store?.get_data ?? store?.data_get ?? store?.options?.get?.data ?? {};
+        const data_return: Record<string, any> = {};
+        for (const k in source) data_return[k] = toValue(source[k]);
         return data_return;
     };
 
@@ -191,13 +192,16 @@ function maxPiniaPlugin(
 
     const is_cancelling = ref(false);
     const cancelLoad = (retryInSeconds: number | boolean | null = null) => {
-        is_cancelling.value = true;
         if (signal_get_request.value) signal_get_request.value.abort();
-        if (retryInSeconds === true || retryInSeconds === 0) retryInSeconds = 50;
-        if (Number(retryInSeconds) > 0) setTimeout(() => {
-            is_cancelling.value = false;
-            loadInServer().then();
-        }, Number(retryInSeconds));
+        if (retryInSeconds === true || retryInSeconds === 0) retryInSeconds = 5;
+        const seconds = Number(retryInSeconds);
+        if (seconds > 0) {
+            is_cancelling.value = true;
+            setTimeout(() => {
+                is_cancelling.value = false;
+                loadInServer().then();
+            }, seconds * 1000);
+        }
     };
 
     const loadInServer = async () => {
@@ -278,7 +282,7 @@ function maxPiniaPlugin(
                 if (data_cache?.data) try {
                     status.value.cache.get.is_blank = false;
                     pauseSave();
-                    if (store.isShallow || store.options.isShallow) {
+                    if (store.isShallow || store.options?.isShallow) {
                         store.data = null;
                         store.data = data_cache.data;
                     } else store.data = data_cache.data;
@@ -329,7 +333,9 @@ function maxPiniaPlugin(
         if (size(store.data) === 0) return;
 
         const data: any = data_save ? data_save : { data: store.data ?? {}, ...includeInCacheValues.value };
-        const cleanData = JSON.parse(JSON.stringify(data));
+        // cloneDeep (em vez de JSON round-trip) preserva Date, trata referências
+        // circulares e desembrulha os proxies reativos do Vue para o structured-clone do localforage.
+        const cleanData = cloneDeep(toRaw(data));
         status.value.cache.save.is_requesting = true;
         status.value.cache.save.is_requested = true;
         localforage
@@ -353,10 +359,11 @@ function maxPiniaPlugin(
     const postInDeduplication = () => store?.in_deduplication ?? store?.options?.in_deduplication ?? store?.in_save_deduplication ?? store?.options?.in_save_deduplication ?? store?.in_post_deduplication ?? store?.options?.in_post_deduplication ?? 'last';
     const postRouteName = (): string | null => getIn(store, ['options.save', 'options.post', 'options.route_post', 'options.post_route', 'options.save_route', 'options.route_save', 'save', 'post', 'route_post', 'post_route', 'save_route', 'route_save']);
     const getPostData = () => {
-        let data_return = store.getSaveData ?? getIn(store, ['post_data', 'data_post', 'options.post.data', 'options.post_data', 'options.data_post', 'saveData', 'data_save', 'options.save.data', 'options.saveData', 'options.data_save']);
-        if (typeof data_return === 'function') data_return = data_return();
-        if (!data_return) return null;
-        for (const k in data_return) data_return[k] = toValue(data_return[k]);
+        let source = store.getSaveData ?? getIn(store, ['post_data', 'data_post', 'options.post.data', 'options.post_data', 'options.data_post', 'saveData', 'data_save', 'options.save.data', 'options.saveData', 'options.data_save']);
+        if (typeof source === 'function') source = source();
+        if (!source) return null;
+        const data_return: Record<string, any> = {};
+        for (const k in source) data_return[k] = toValue(source[k]);
         return data_return;
     };
     const signal_post_request: Ref = ref(null);
@@ -366,17 +373,18 @@ function maxPiniaPlugin(
 
         if (!route_name) return;
         if (store.enabled === false || store.options?.enabled === false) return;
-
-        status.value.server.save.is_requesting = true;
-        status.value.server.save.is_requested = false;
-        status.value.server.save.is_success = false;
-        status.value.server.save.is_error = false;
+        if (size(data_send) === 0) return;
 
         if (signal_post_request.value) {
             const inDeduplication = postInDeduplication();
             if (inDeduplication === 'last' || inDeduplication === 'cancel' || inDeduplication === 'this') signal_post_request.value.abort();
             if (inDeduplication === 'ignore' || inDeduplication === 'first') return;
         }
+
+        status.value.server.save.is_requesting = true;
+        status.value.server.save.is_requested = false;
+        status.value.server.save.is_success = false;
+        status.value.server.save.is_error = false;
 
         signal_post_request.value = new AbortController();
         const axiosConfig = {
@@ -393,8 +401,6 @@ function maxPiniaPlugin(
             },
             withCredentials: true
         };
-
-        if (size(data_send) === 0) return;
 
         if (store.removeToSave || store.remove_to_save) {
             const remove = store.removeToSave ?? store.remove_to_save;
@@ -445,12 +451,12 @@ function maxPiniaPlugin(
 
     watchDebounced(() => countChanges.value, () => saveInServer(), { debounce: 300 });
 
-    watch(key, (old_key) => {
+    watch(key, (new_key, old_key) => {
         stopLoading(old_key, 'auto');
+        stopLoading(new_key, 'auto');
     });
 
-    watch(() => [store.id, store.enabled, store.options?.enabled], (old_value, new_value) => {
-        if (isEqual(old_value, new_value)) return;
+    watch(() => [store.id, store.enabled, store.options?.enabled], () => {
         idx.value = store.id;
         pauseSave();
         setDefaultData();
