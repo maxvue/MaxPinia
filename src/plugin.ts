@@ -51,6 +51,9 @@ export function createMaxPinia(userConfig: MaxPiniaConfig = {}): PiniaPlugin {
             getSessionToken: userConfig.getSessionToken ?? (() => null),
             isAppStarted: userConfig.isAppStarted ?? (() => true),
             requestTimeout: userConfig.requestTimeout ?? 15000,
+            storeName: userConfig.storeName ?? 'max-pinia-cache',
+            resolveRoute: userConfig.resolveRoute ?? buildUrl,
+            onActivity: userConfig.onActivity ?? (() => {}),
             loading: userConfig.loading ?? {}
         };
         return resolved;
@@ -64,6 +67,9 @@ export function createMaxPinia(userConfig: MaxPiniaConfig = {}): PiniaPlugin {
             getSessionToken: userConfig.getSessionToken ?? (() => null),
             isAppStarted: userConfig.isAppStarted ?? (() => true),
             requestTimeout: userConfig.requestTimeout ?? 15000,
+            storeName: userConfig.storeName ?? 'max-pinia-cache',
+            resolveRoute: userConfig.resolveRoute ?? buildUrl,
+            onActivity: userConfig.onActivity ?? (() => {}),
             loading: userConfig.loading ?? {}
         };
         const getAxios = async () => cfg.axios ?? (await resolve()).axios;
@@ -81,7 +87,7 @@ function maxPiniaPlugin(
     if (!store.isCached && !store.is_cached) return {};
 
     const cache_name: Ref = store.cache_name ?? ref(cfg.cacheName);
-    localforage.config({ name: cache_name.value, storeName: 'max-pinia-cache' });
+    localforage.config({ name: cache_name.value, storeName: cfg.storeName });
 
     const loading = cfg.loading;
     const default_value = ref(cloneDeep(store.data));
@@ -118,6 +124,7 @@ function maxPiniaPlugin(
     }) as any;
 
     watch(status, () => {
+        if (typeof document === 'undefined') return;
         document.dispatchEvent(new CustomEvent('status-updated', { detail: status.value, bubbles: true }));
     });
 
@@ -205,6 +212,7 @@ function maxPiniaPlugin(
     };
 
     const loadInServer = async () => {
+        cfg.onActivity();
         if (is_cancelling.value) return;
         if (store.enabled === false || store.options?.enabled === false) return;
 
@@ -225,7 +233,7 @@ function maxPiniaPlugin(
         signal_get_request.value = new AbortController();
 
         const data_get = getRouteData();
-        const route_url = buildUrl(route_name, data_get);
+        const route_url = cfg.resolveRoute(route_name, data_get);
 
         if (!status.value.cache.get.is_success || status.value.cache.get.is_blank) setLoading('server');
 
@@ -269,6 +277,7 @@ function maxPiniaPlugin(
     };
 
     const loadInCache = () => {
+        cfg.onActivity();
         if (store.enabled === false || store.options?.enabled === false) return;
 
         status.value.cache.get.is_requesting = true;
@@ -326,6 +335,7 @@ function maxPiniaPlugin(
     watch(includeInCacheValues, () => saveInCache(), { deep: true });
 
     const saveInCache = async (data_save: any = null) => {
+        cfg.onActivity();
         if (store.enabled === false || store.options?.enabled === false) {
             setDefaultData();
             return;
@@ -368,6 +378,7 @@ function maxPiniaPlugin(
     };
     const signal_post_request: Ref = ref(null);
     const saveInServer = async () => {
+        cfg.onActivity();
         const route_name: string | null = postRouteName();
         const data_send = getPostData() ?? { ...store.data };
 
@@ -408,7 +419,7 @@ function maxPiniaPlugin(
         }
 
         const axios = await getAxios();
-        axios.post(route_name, data_send, axiosConfig)
+        axios.post(cfg.resolveRoute(route_name), data_send, axiosConfig)
             .then((response: any) => {
                 if (store.save_return) {
                     pauseSave();
@@ -474,6 +485,6 @@ function maxPiniaPlugin(
 /** Hook utilitário: observa o status agregado emitido por qualquer store cacheada. */
 export function useAsyncStatus(): Ref<Status | null> {
     const asyncStatus = ref<Status | null>(null);
-    document.addEventListener('status-updated', (event: any) => asyncStatus.value = event.detail);
+    if (typeof document !== 'undefined') document.addEventListener('status-updated', (event: any) => asyncStatus.value = event.detail);
     return asyncStatus;
 }

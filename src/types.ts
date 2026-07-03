@@ -54,6 +54,20 @@ export interface MaxPiniaConfig {
     loading?: LoadingAdapter;
     /** Timeout padrão das requisições em ms. Default: `15000`. */
     requestTimeout?: number;
+    /**
+     * Nome do object store do localforage. Default: `'max-pinia-cache'`.
+     * Apps migrando de um plugin anterior podem apontar para o storeName antigo
+     * para preservar o cache já existente dos usuários.
+     */
+    storeName?: string;
+    /**
+     * Resolve `options.get.route` / `options.save` para uma URL final.
+     * Permite usar nomes de rota (ex.: Ziggy) em vez de caminhos literais.
+     * Default: trata a rota como URL e anexa `params` como query string.
+     */
+    resolveRoute?: (route: string, params?: Record<string, any>) => string;
+    /** Hook chamado a cada atividade da store (load/save em cache ou servidor). */
+    onActivity?: () => void;
 }
 
 /** Propriedades injetadas pelo plugin em toda store cacheada. */
