@@ -10,3 +10,4 @@ dist
 .claude/
 .gemini
 CLAUDE.md
+/.worktrees
