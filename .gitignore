@@ -4,6 +4,7 @@ dist
 .DS_Store
 .vite
 *.tsbuildinfo
+coverage
 
 # Ferramentas de IA / configs locais
 .agents/
