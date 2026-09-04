@@ -1,4 +1,4 @@
-import { ref, computed, watch, toValue, toRaw, getCurrentScope, onScopeDispose, type Ref } from 'vue';
+import { ref, computed, watch, nextTick, toValue, toRaw, getCurrentScope, onScopeDispose, type Ref } from 'vue';
 import type { PiniaPlugin, PiniaPluginContext } from 'pinia';
 import localforage from 'localforage';
 import { cloneDeep, size, isEqual, unset } from 'lodash-es';
@@ -448,9 +448,22 @@ function maxPiniaPlugin(
             });
     };
 
-    const is_save_in_pause: Ref = ref(true);
-    const pauseSave = () => { is_save_in_pause.value = true; };
-    const resumeSave = () => { setTimeout(() => { is_save_in_pause.value = false; }, 1); };
+    let pauseDepth = 0;
+    const is_save_in_pause: Ref<boolean> = ref(true);
+
+    const pauseSave = () => {
+        pauseDepth++;
+        is_save_in_pause.value = true;
+    };
+
+    const resumeSave = () => {
+        nextTick(() => {
+            pauseDepth = Math.max(0, pauseDepth - 1);
+            if (pauseDepth === 0) {
+                is_save_in_pause.value = false;
+            }
+        });
+    };
 
     const countChanges: Ref = ref(0);
     watch(() => cloneDeep(store.data), (new_val, old_val) => {
@@ -479,7 +492,7 @@ function maxPiniaPlugin(
 
     const clearAll = async () => await localforage.clear();
 
-    return { idx, countChanges, key, setLoadingMessage, cancelLoad, is_save_in_pause, reload, clearAll, default_value, status, is_done, saveInServer, saveInCache, is_done_to_show } as any;
+    return { idx, countChanges, key, setLoadingMessage, cancelLoad, is_save_in_pause, pauseSave, resumeSave, reload, clearAll, default_value, status, is_done, saveInServer, saveInCache, is_done_to_show } as any;
 }
 
 /** Hook utilitário: observa o status agregado emitido por qualquer store cacheada. */
