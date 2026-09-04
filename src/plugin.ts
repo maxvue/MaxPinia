@@ -1,4 +1,4 @@
-import { ref, computed, watch, toValue, toRaw, type Ref } from 'vue';
+import { ref, computed, watch, toValue, toRaw, getCurrentScope, onScopeDispose, type Ref } from 'vue';
 import type { PiniaPlugin, PiniaPluginContext } from 'pinia';
 import localforage from 'localforage';
 import { cloneDeep, size, isEqual, unset } from 'lodash-es';
@@ -485,6 +485,16 @@ function maxPiniaPlugin(
 /** Hook utilitário: observa o status agregado emitido por qualquer store cacheada. */
 export function useAsyncStatus(): Ref<Status | null> {
     const asyncStatus = ref<Status | null>(null);
-    if (typeof document !== 'undefined') document.addEventListener('status-updated', (event: any) => asyncStatus.value = event.detail);
+    if (typeof document !== 'undefined') {
+        const handler = (event: Event) => {
+            asyncStatus.value = (event as CustomEvent<Status>).detail;
+        };
+        document.addEventListener('status-updated', handler);
+        if (getCurrentScope()) {
+            onScopeDispose(() => {
+                document.removeEventListener('status-updated', handler);
+            });
+        }
+    }
     return asyncStatus;
 }
