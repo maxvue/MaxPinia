@@ -398,18 +398,20 @@ function maxPiniaPlugin(
         status.value.server.save.is_error = false;
 
         signal_post_request.value = new AbortController();
+        const sessionToken = cfg.getSessionToken();
+        const headers: Record<string, string> = {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(sessionToken ? { 'X-CSRF-TOKEN': sessionToken } : {})
+        };
         const axiosConfig = {
             timeout: cfg.requestTimeout,
             signal: signal_post_request.value.signal,
             onDownloadProgress: (progressEvent: any) => {
                 progress_loading.value = progressEvent.loaded / progressEvent.total;
             },
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': cfg.getSessionToken(),
-                'X-Requested-With': 'XMLHttpRequest'
-            },
+            headers,
             withCredentials: true
         };
 

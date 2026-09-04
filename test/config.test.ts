@@ -77,4 +77,68 @@ describe('createMaxPinia config', () => {
         setup({ axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() } as any, storeName: 'pinia-with-cache-plugin' }, cachedStoreSetup);
         expect(localforage.config).toHaveBeenCalledWith(expect.objectContaining({ storeName: 'pinia-with-cache-plugin' }));
     });
+
+    it('não envia header X-CSRF-TOKEN quando getSessionToken retorna null ou não é informado', async () => {
+        const axiosPost = vi.fn().mockResolvedValue({ data: {} });
+        const store = setup(
+            { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+            () => {
+                const isCached = ref(true);
+                const data = ref<Record<string, any>>({ name: 'test' });
+                const options = computed(() => ({ save: 'my.save.route' }));
+                return { isCached, data, options };
+            }
+        );
+
+        store.saveInServer();
+        await vi.waitFor(() => expect(axiosPost).toHaveBeenCalled());
+
+        const postConfig = axiosPost.mock.calls[0][2];
+        expect(postConfig.headers).not.toHaveProperty('X-CSRF-TOKEN');
+    });
+
+    it('envia header X-CSRF-TOKEN quando getSessionToken retorna um token válido', async () => {
+        const axiosPost = vi.fn().mockResolvedValue({ data: {} });
+        const store = setup(
+            {
+                axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any,
+                getSessionToken: () => 'csrf-secret-abc-123'
+            },
+            () => {
+                const isCached = ref(true);
+                const data = ref<Record<string, any>>({ name: 'test' });
+                const options = computed(() => ({ save: 'my.save.route' }));
+                return { isCached, data, options };
+            }
+        );
+
+        store.saveInServer();
+        await vi.waitFor(() => expect(axiosPost).toHaveBeenCalled());
+
+        const postConfig = axiosPost.mock.calls[0][2];
+        expect(postConfig.headers['X-CSRF-TOKEN']).toBe('csrf-secret-abc-123');
+    });
+
+    it('não envia header X-CSRF-TOKEN quando getSessionToken retorna string vazia ou undefined', async () => {
+        const axiosPost = vi.fn().mockResolvedValue({ data: {} });
+        const store = setup(
+            {
+                axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any,
+                getSessionToken: () => ''
+            },
+            () => {
+                const isCached = ref(true);
+                const data = ref<Record<string, any>>({ name: 'test' });
+                const options = computed(() => ({ save: 'my.save.route' }));
+                return { isCached, data, options };
+            }
+        );
+
+        store.saveInServer();
+        await vi.waitFor(() => expect(axiosPost).toHaveBeenCalled());
+
+        const postConfig = axiosPost.mock.calls[0][2];
+        expect(postConfig.headers).not.toHaveProperty('X-CSRF-TOKEN');
+    });
 });
+
