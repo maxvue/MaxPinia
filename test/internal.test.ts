@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ref } from 'vue';
 import {
     isNotEmpty,
@@ -98,3 +98,36 @@ describe('useDefaultReset', () => {
         expect(first).not.toBe(second);
     });
 });
+
+describe('watchValid', () => {
+    it('dispara callback apenas para valores não-vazios', async () => {
+        const source = ref<string>('');
+        const cb = vi.fn();
+        const { watchValid } = await import('../src/helpers/internal');
+        watchValid(source, cb);
+
+        source.value = '   ';
+        await (await import('vue')).nextTick();
+        expect(cb).not.toHaveBeenCalled();
+
+        source.value = 'mensagem valida';
+        await (await import('vue')).nextTick();
+        expect(cb).toHaveBeenCalledWith('mensagem valida', '   ');
+    });
+
+    it('suporta options.once para parar após o primeiro valor válido', async () => {
+        const source = ref<string>('');
+        const cb = vi.fn();
+        const { watchValid } = await import('../src/helpers/internal');
+        watchValid(source, cb, { once: true });
+
+        source.value = 'primeira';
+        await (await import('vue')).nextTick();
+        expect(cb).toHaveBeenCalledTimes(1);
+
+        source.value = 'segunda';
+        await (await import('vue')).nextTick();
+        expect(cb).toHaveBeenCalledTimes(1);
+    });
+});
+
