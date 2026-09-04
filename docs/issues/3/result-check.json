@@ -1,0 +1,4 @@
+{
+  "status": "Aprovado",
+  "message": "Aprovado com base nos 4 critérios do Portão de Qualidade. (1) Causa raiz resolvida: o handle cancel_timer armazena o timeout de cancelLoad, limpa timers anteriores com clearTimeout, redefine is_cancelling e limpa o timer pendente ao desativar a store. Os 5 testes TDD em test/cancelLoad.test.ts comprovam a correção de timers órfãos e cancelamento definitivo. (2) Sem regressões: a suíte completa passou com 100% de sucesso. (3) Tipagem estrita e padrões mantidos sem novos any nem código morto. (4) Escopo restrito estritamente aos arquivos previstos (src/plugin.ts e test/cancelLoad.test.ts). Saída da validação: 'npm run test' (Test Files: 4 passed (4), Tests: 28 passed (28)), 'npm run type-check' (vue-tsc sem erros) e 'npm run build' (build gerado com sucesso em 2.81s)."
+}

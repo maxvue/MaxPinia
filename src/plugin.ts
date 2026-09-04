@@ -197,14 +197,22 @@ function maxPiniaPlugin(
         loading.stop?.(targetKey);
     }
 
+    let cancel_timer: ReturnType<typeof setTimeout> | null = null;
     const is_cancelling = ref(false);
     const cancelLoad = (retryInSeconds: number | boolean | null = null) => {
+        if (cancel_timer) {
+            clearTimeout(cancel_timer);
+            cancel_timer = null;
+        }
+        is_cancelling.value = false;
+
         if (signal_get_request.value) signal_get_request.value.abort();
         if (retryInSeconds === true || retryInSeconds === 0) retryInSeconds = 5;
         const seconds = Number(retryInSeconds);
         if (seconds > 0) {
             is_cancelling.value = true;
-            setTimeout(() => {
+            cancel_timer = setTimeout(() => {
+                cancel_timer = null;
                 is_cancelling.value = false;
                 loadInServer().then();
             }, seconds * 1000);
@@ -486,7 +494,15 @@ function maxPiniaPlugin(
         setDefaultData();
         resumeSave();
         status.reset();
-        if (store.enabled === false || store.options?.enabled === false) return;
+        if (store.enabled === false || store.options?.enabled === false) {
+            if (cancel_timer) {
+                clearTimeout(cancel_timer);
+                cancel_timer = null;
+                is_cancelling.value = false;
+            }
+            if (signal_get_request.value) signal_get_request.value.abort();
+            return;
+        }
         loadInCache();
     }, { immediate: true });
 
