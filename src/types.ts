@@ -83,6 +83,8 @@ declare module 'pinia' {
         status: Status;
         countChanges: number;
         is_save_in_pause: boolean;
+        pauseSave: () => void;
+        resumeSave: () => void;
         idx?: any;
         is_done?: boolean;
         is_done_to_show?: ComputedRef<boolean>;
