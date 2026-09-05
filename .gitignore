@@ -7,8 +7,11 @@ dist
 coverage
 
 # Ferramentas de IA / configs locais
+.agent
 .agents/
 .claude/
+.cursor/
 .gemini
+.opencode/
 CLAUDE.md
 /.worktrees

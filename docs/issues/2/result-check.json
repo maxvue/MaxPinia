@@ -1,4 +1,4 @@
 {
   "status": "Aprovado",
-  "message": "Validação executada com sucesso comprovado. Comandos executados: 'npm run type-check' (saída: 'vue-tsc --noEmit' concluído com 0 erros) e 'npm test' (saída: 4 arquivos de teste passados, 30 testes passados de 30, duração 1.25s, incluindo os 7 testes de 'test/savePause.test.ts'). A substituição de setTimeout(..., 1) por nextTick e controle de reentrância via pauseDepth resolveu a perda de mutações em microtasks sem quebras de contrato ou regressões, seguindo estritamente o escopo do plano."
+  "message": "Validação executada com sucesso comprovado. Comandos executados: 'npm run type-check' (saída: 'vue-tsc --noEmit' concluído com 0 erros), 'npm test' (saída: 8 arquivos de teste passados, 84 testes passados de 84, duração 2.58s) e 'npx vitest run test/savePause.test.ts' (saída: 1 arquivo de teste passado, 7 testes passados de 7, duração 640ms). A substituição de setTimeout(..., 1) por nextTick e controle de reentrância via pauseDepth resolveu deterministicamente a perda de mutações em microtasks sem quebras de contratos ou regressões, com tipagem estrita e escopo aderente ao plano."
 }
