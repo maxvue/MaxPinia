@@ -14,7 +14,18 @@ export function buildUrl(url: string, params?: Record<string, any>): string {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined) qs.append(k, String(v));
     const str = qs.toString();
-    return str ? `${url}?${str}` : url;
+    if (!str) return url;
+
+    const hashIndex = url.indexOf('#');
+    const hash = hashIndex !== -1 ? url.slice(hashIndex) : '';
+    const baseUrl = hashIndex !== -1 ? url.slice(0, hashIndex) : url;
+
+    const hasQuery = baseUrl.includes('?');
+    const separator = hasQuery
+        ? (baseUrl.endsWith('?') || baseUrl.endsWith('&') ? '' : '&')
+        : '?';
+
+    return `${baseUrl}${separator}${str}${hash}`;
 }
 
 interface ResolvedConfig extends Required<Omit<MaxPiniaConfig, 'loading'>> {
@@ -393,7 +404,7 @@ function maxPiniaPlugin(
     const saveInServer = async () => {
         cfg.onActivity();
         const route_name: string | null = postRouteName();
-        const data_send = getPostData() ?? { ...store.data };
+        const data_send = cloneDeep(toRaw(getPostData() ?? store.data) ?? {});
 
         if (!route_name) return;
         if (store.enabled === false || store.options?.enabled === false) return;
