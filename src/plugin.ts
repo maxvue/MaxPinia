@@ -123,6 +123,41 @@ function maxPiniaPlugin(
             save: { is_requesting: false, is_requesting_now: false, is_requested: false, is_success: false, is_success_now: false, is_error: false, error: null } }
     }) as any;
 
+    let timer_server_get: ReturnType<typeof setTimeout> | null = null;
+    let timer_server_save: ReturnType<typeof setTimeout> | null = null;
+    let timer_cache_get: ReturnType<typeof setTimeout> | null = null;
+    let timer_cache_save: ReturnType<typeof setTimeout> | null = null;
+
+    const clearStatusTimers = () => {
+        if (timer_server_get) {
+            clearTimeout(timer_server_get);
+            timer_server_get = null;
+        }
+        if (timer_server_save) {
+            clearTimeout(timer_server_save);
+            timer_server_save = null;
+        }
+        if (timer_cache_get) {
+            clearTimeout(timer_cache_get);
+            timer_cache_get = null;
+        }
+        if (timer_cache_save) {
+            clearTimeout(timer_cache_save);
+            timer_cache_save = null;
+        }
+    };
+
+    const originalStatusReset = status.reset;
+    status.reset = () => {
+        clearStatusTimers();
+        originalStatusReset();
+    };
+
+    const trigger_server_get = ref(0);
+    const trigger_server_save = ref(0);
+    const trigger_cache_get = ref(0);
+    const trigger_cache_save = ref(0);
+
     watch(status, () => {
         if (typeof document === 'undefined') return;
         document.dispatchEvent(new CustomEvent('status-updated', { detail: status.value, bubbles: true }));
@@ -131,40 +166,92 @@ function maxPiniaPlugin(
     const is_done = computed(() => status.value.server.get.is_success);
     const is_done_to_show = computed(() => (status.value.server.get.is_success && !status.value.server.get.is_blank) || status.value.cache.get.is_success);
 
-    watch(() => [status.value.server.get.is_requesting, status.value.server.get.is_success], () => {
-        status.value.server.get.is_requesting_now = status.value.server.get.is_requesting;
-        status.value.server.get.is_success_now = status.value.server.get.is_success;
-        setTimeout(() => {
-            status.value.server.get.is_requesting_now = false;
-            status.value.server.get.is_success_now = false;
-        }, 500);
+    watch(() => [status.value.server.get.is_requesting, status.value.server.get.is_success, trigger_server_get.value], ([isReq, isSuccess], _, onCleanup) => {
+        if (timer_server_get) {
+            clearTimeout(timer_server_get);
+            timer_server_get = null;
+        }
+        status.value.server.get.is_requesting_now = isReq;
+        status.value.server.get.is_success_now = isSuccess;
+        if (isReq || isSuccess) {
+            timer_server_get = setTimeout(() => {
+                status.value.server.get.is_requesting_now = false;
+                status.value.server.get.is_success_now = false;
+                timer_server_get = null;
+            }, 500);
+            onCleanup(() => {
+                if (timer_server_get) {
+                    clearTimeout(timer_server_get);
+                    timer_server_get = null;
+                }
+            });
+        }
     });
 
-    watch(() => [status.value.server.save.is_requesting, status.value.server.save.is_success], () => {
-        status.value.server.save.is_requesting_now = status.value.server.save.is_requesting;
-        status.value.server.save.is_success_now = status.value.server.save.is_success;
-        setTimeout(() => {
-            status.value.server.save.is_requesting_now = false;
-            status.value.server.save.is_success_now = false;
-        }, 500);
+    watch(() => [status.value.server.save.is_requesting, status.value.server.save.is_success, trigger_server_save.value], ([isReq, isSuccess], _, onCleanup) => {
+        if (timer_server_save) {
+            clearTimeout(timer_server_save);
+            timer_server_save = null;
+        }
+        status.value.server.save.is_requesting_now = isReq;
+        status.value.server.save.is_success_now = isSuccess;
+        if (isReq || isSuccess) {
+            timer_server_save = setTimeout(() => {
+                status.value.server.save.is_requesting_now = false;
+                status.value.server.save.is_success_now = false;
+                timer_server_save = null;
+            }, 500);
+            onCleanup(() => {
+                if (timer_server_save) {
+                    clearTimeout(timer_server_save);
+                    timer_server_save = null;
+                }
+            });
+        }
     });
 
-    watch(() => [status.value.cache.get.is_requesting, status.value.cache.get.is_success], () => {
-        status.value.cache.get.is_requesting_now = status.value.cache.get.is_requesting;
-        status.value.cache.get.is_success_now = status.value.cache.get.is_success;
-        setTimeout(() => {
-            status.value.cache.get.is_requesting_now = false;
-            status.value.cache.get.is_success_now = false;
-        }, 500);
+    watch(() => [status.value.cache.get.is_requesting, status.value.cache.get.is_success, trigger_cache_get.value], ([isReq, isSuccess], _, onCleanup) => {
+        if (timer_cache_get) {
+            clearTimeout(timer_cache_get);
+            timer_cache_get = null;
+        }
+        status.value.cache.get.is_requesting_now = isReq;
+        status.value.cache.get.is_success_now = isSuccess;
+        if (isReq || isSuccess) {
+            timer_cache_get = setTimeout(() => {
+                status.value.cache.get.is_requesting_now = false;
+                status.value.cache.get.is_success_now = false;
+                timer_cache_get = null;
+            }, 500);
+            onCleanup(() => {
+                if (timer_cache_get) {
+                    clearTimeout(timer_cache_get);
+                    timer_cache_get = null;
+                }
+            });
+        }
     });
 
-    watch(() => [status.value.cache.save.is_requesting, status.value.cache.save.is_success], () => {
-        status.value.cache.save.is_requesting_now = status.value.cache.save.is_requesting;
-        status.value.cache.save.is_success_now = status.value.cache.save.is_success;
-        setTimeout(() => {
-            status.value.cache.save.is_requesting_now = false;
-            status.value.cache.save.is_success_now = false;
-        }, 500);
+    watch(() => [status.value.cache.save.is_requesting, status.value.cache.save.is_success, trigger_cache_save.value], ([isReq, isSuccess], _, onCleanup) => {
+        if (timer_cache_save) {
+            clearTimeout(timer_cache_save);
+            timer_cache_save = null;
+        }
+        status.value.cache.save.is_requesting_now = isReq;
+        status.value.cache.save.is_success_now = isSuccess;
+        if (isReq || isSuccess) {
+            timer_cache_save = setTimeout(() => {
+                status.value.cache.save.is_requesting_now = false;
+                status.value.cache.save.is_success_now = false;
+                timer_cache_save = null;
+            }, 500);
+            onCleanup(() => {
+                if (timer_cache_save) {
+                    clearTimeout(timer_cache_save);
+                    timer_cache_save = null;
+                }
+            });
+        }
     });
 
     watchValid(() => store.loading_options?.message, (message) => {
@@ -233,6 +320,7 @@ function maxPiniaPlugin(
             if (inDeduplication === 'ignore' || inDeduplication === 'first') return;
         }
 
+        trigger_server_get.value++;
         status.value.server.get.is_requesting = true;
         status.value.server.get.is_requested = false;
         status.value.server.get.is_success = false;
@@ -288,6 +376,7 @@ function maxPiniaPlugin(
         cfg.onActivity();
         if (store.enabled === false || store.options?.enabled === false) return;
 
+        trigger_cache_get.value++;
         status.value.cache.get.is_requesting = true;
         status.value.cache.get.is_requested = false;
         status.value.cache.get.is_success = false;
@@ -350,6 +439,7 @@ function maxPiniaPlugin(
         }
         if (size(store.data) === 0) return;
 
+        trigger_cache_save.value++;
         const data: any = data_save ? data_save : { data: store.data ?? {}, ...includeInCacheValues.value };
         // cloneDeep (em vez de JSON round-trip) preserva Date, trata referências
         // circulares e desembrulha os proxies reativos do Vue para o structured-clone do localforage.
@@ -400,6 +490,7 @@ function maxPiniaPlugin(
             if (inDeduplication === 'ignore' || inDeduplication === 'first') return;
         }
 
+        trigger_server_save.value++;
         status.value.server.save.is_requesting = true;
         status.value.server.save.is_requested = false;
         status.value.server.save.is_success = false;
@@ -495,6 +586,7 @@ function maxPiniaPlugin(
         pauseSave();
         setDefaultData();
         resumeSave();
+        clearStatusTimers();
         status.reset();
         if (store.enabled === false || store.options?.enabled === false) {
             if (cancel_timer) {
@@ -507,6 +599,20 @@ function maxPiniaPlugin(
         }
         loadInCache();
     }, { immediate: true });
+
+    if (store.$dispose) {
+        const originalDispose = store.$dispose.bind(store);
+        store.$dispose = () => {
+            clearStatusTimers();
+            originalDispose();
+        };
+    }
+
+    if (getCurrentScope()) {
+        onScopeDispose(() => {
+            clearStatusTimers();
+        });
+    }
 
     const clearAll = async () => await localforage.clear();
 
