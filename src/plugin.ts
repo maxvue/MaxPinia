@@ -1,4 +1,4 @@
-import { ref, computed, watch, nextTick, toValue, toRaw, getCurrentScope, onScopeDispose, type Ref } from 'vue';
+import { ref, computed, watch, nextTick, toValue, toRaw, isRef, getCurrentScope, onScopeDispose, type Ref } from 'vue';
 import type { PiniaPlugin, PiniaPluginContext } from 'pinia';
 import localforage from 'localforage';
 import { cloneDeep, size, isEqual, unset } from 'lodash-es';
@@ -86,8 +86,13 @@ function maxPiniaPlugin(
 
     if (!store.isCached && !store.is_cached) return {};
 
-    const cache_name: Ref = store.cache_name ?? ref(cfg.cacheName);
-    localforage.config({ name: cache_name.value, storeName: cfg.storeName });
+    const cache_name: Ref = isRef(store.cache_name) ? store.cache_name : ref(store.cache_name ?? store.options?.cache_name ?? store.options?.cacheName ?? cfg.cacheName);
+    const store_name = toValue(store.storeName) ?? toValue(store.store_name) ?? store.options?.storeName ?? store.options?.store_name ?? cfg.storeName;
+
+    // Criação de instância isolada de LocalForage por store com fallback defensivo para mocks legados
+    const storage: any = typeof localforage.createInstance === 'function'
+        ? localforage.createInstance({ name: cache_name.value, storeName: store_name })
+        : (localforage.config({ name: cache_name.value, storeName: store_name }), localforage);
 
     const loading = cfg.loading;
     const default_value = ref(cloneDeep(store.data));
@@ -292,7 +297,7 @@ function maxPiniaPlugin(
         status.value.cache.get.is_requested = false;
         status.value.cache.get.is_success = false;
         setLoading('loading - cache');
-        localforage.getItem(getKey())
+        storage.getItem(getKey())
             .then((data_cache: any) => {
                 status.value.cache.get.is_requested = true;
                 status.value.cache.get.is_success = true;
@@ -311,7 +316,7 @@ function maxPiniaPlugin(
                     if (checkOnlyCache()) return;
                 } catch (cacheError: any) {
                     console.error('[max-pinia] CACHE CORRUPTED - Key: ' + getKey() + ' - Error: ' + cacheError.name, cacheError);
-                    localforage.removeItem(getKey()).catch(() => {});
+                    storage.removeItem(getKey()).catch(() => {});
                     resumeSave();
                 }
                 else status.value.cache.get.is_blank = true;
@@ -356,7 +361,7 @@ function maxPiniaPlugin(
         const cleanData = cloneDeep(toRaw(data));
         status.value.cache.save.is_requesting = true;
         status.value.cache.save.is_requested = true;
-        localforage
+        storage
             .setItem(getKey(), cleanData)
             .then(() => {
                 status.value.cache.save.is_requested = true;
@@ -508,7 +513,16 @@ function maxPiniaPlugin(
         loadInCache();
     }, { immediate: true });
 
-    const clearAll = async () => await localforage.clear();
+    const clearAll = async () => {
+        try {
+            const allKeys = typeof storage.keys === 'function' ? (await storage.keys()) || [] : [];
+            const prefix = `${store.$id}.`;
+            const storeKeys = allKeys.filter((k: string) => k === store.$id || k.startsWith(prefix));
+            await Promise.all(storeKeys.map((k: string) => storage.removeItem(k)));
+        } catch (error: any) {
+            console.error('[max-pinia] CLEAR ALL ERROR: ' + error.name, error);
+        }
+    };
 
     return { idx, countChanges, key, setLoadingMessage, cancelLoad, is_save_in_pause, pauseSave, resumeSave, reload, clearAll, default_value, status, is_done, saveInServer, saveInCache, is_done_to_show } as any;
 }

@@ -3,15 +3,21 @@ import { createApp, defineComponent, ref, computed } from 'vue';
 import { createPinia, defineStore, setActivePinia } from 'pinia';
 import { createMaxPinia } from '../src';
 
-vi.mock('localforage', () => ({
-    default: {
+vi.mock('localforage', () => {
+    const mockStorageInstance = {
         config: vi.fn(),
         getItem: vi.fn().mockResolvedValue(null),
         setItem: vi.fn().mockResolvedValue(null),
         removeItem: vi.fn().mockResolvedValue(null),
-        clear: vi.fn().mockResolvedValue(null)
-    }
-}));
+        clear: vi.fn().mockResolvedValue(null),
+        keys: vi.fn().mockResolvedValue([]),
+        createInstance: vi.fn()
+    };
+    mockStorageInstance.createInstance = vi.fn((_opts?: any) => mockStorageInstance);
+    return {
+        default: mockStorageInstance
+    };
+});
 
 import localforage from 'localforage';
 
@@ -75,7 +81,7 @@ describe('createMaxPinia config', () => {
 
     it('repassa storeName customizado ao localforage', async () => {
         setup({ axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() } as any, storeName: 'pinia-with-cache-plugin' }, cachedStoreSetup);
-        expect(localforage.config).toHaveBeenCalledWith(expect.objectContaining({ storeName: 'pinia-with-cache-plugin' }));
+        expect(localforage.createInstance).toHaveBeenCalledWith(expect.objectContaining({ storeName: 'pinia-with-cache-plugin' }));
     });
 
     it('não envia header X-CSRF-TOKEN quando getSessionToken retorna null ou não é informado', async () => {
