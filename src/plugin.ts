@@ -388,7 +388,7 @@ function maxPiniaPlugin(
     const saveInServer = async () => {
         cfg.onActivity();
         const route_name: string | null = postRouteName();
-        const data_send = getPostData() ?? { ...store.data };
+        const data_send = cloneDeep(toRaw(getPostData() ?? store.data) ?? {});
 
         if (!route_name) return;
         if (store.enabled === false || store.options?.enabled === false) return;

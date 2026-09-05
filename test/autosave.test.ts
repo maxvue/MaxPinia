@@ -227,6 +227,11 @@ describe('Pipeline de Auto-Save Reativo', () => {
         });
         expect(sentPayload).not.toHaveProperty('tempToken');
         expect(sentPayload.nested).not.toHaveProperty('internal');
+
+        // Validação crucial de não-destrutividade do estado local:
+        expect(store.data.tempToken).toBe('secret_123');
+        expect(store.data.nested).toEqual({ internal: true, keep: 42 });
+        expect(store.data.nested.internal).toBe(true);
     });
 
     it('Caso 3.1: Suporte a remove_to_save em snake_case', async () => {
@@ -255,6 +260,78 @@ describe('Pipeline de Auto-Save Reativo', () => {
             author_id: 99
         });
         expect(sentPayload).not.toHaveProperty('_cache_timestamp');
+        expect(store.data._cache_timestamp).toBe(123456);
+    });
+
+    it('Caso 3.2: Não muta propriedades aninhadas profundas em store.data com removeToSave', async () => {
+        const axiosPost = vi.fn().mockResolvedValue({ data: {} });
+        const store = setupStore(
+            { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+            () => {
+                const isCached = ref(true);
+                const data = ref({
+                    id: 1,
+                    user: {
+                        profile: {
+                            secretToken: 'secret-xyz',
+                            displayName: 'Carlos'
+                        }
+                    },
+                    meta: { tempFlag: true, version: 1 }
+                });
+                const removeToSave = ['user.profile.secretToken', 'meta.tempFlag'];
+                const options = computed(() => ({ save: '/api/profile' }));
+                return { isCached, data, removeToSave, options };
+            }
+        );
+
+        await vi.advanceTimersByTimeAsync(10);
+        await store.saveInServer();
+
+        // Payload sanitizado
+        const sentPayload = axiosPost.mock.calls[0][1];
+        expect(sentPayload.user.profile).toEqual({ displayName: 'Carlos' });
+        expect(sentPayload.meta).toEqual({ version: 1 });
+
+        // Estado reativo íntegro e intocado
+        expect(store.data.user.profile.secretToken).toBe('secret-xyz');
+        expect(store.data.user.profile.displayName).toBe('Carlos');
+        expect(store.data.meta.tempFlag).toBe(true);
+        expect(store.data.meta.version).toBe(1);
+    });
+
+    it('Caso 3.3: Imunidade a mutação com payload proveniente de getSaveData com objetos aninhados', async () => {
+        const axiosPost = vi.fn().mockResolvedValue({ data: {} });
+        const rawCustomData = {
+            id: 1,
+            details: {
+                sensitive: 'do-not-send',
+                info: 'keep-this'
+            }
+        };
+        const store = setupStore(
+            { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+            () => {
+                const isCached = ref(true);
+                const data = ref({ id: 1 });
+                const getSaveData = () => rawCustomData;
+                const removeToSave = ['details.sensitive'];
+                const options = computed(() => ({ save: '/api/custom' }));
+                return { isCached, data, getSaveData, removeToSave, options };
+            }
+        );
+
+        await vi.advanceTimersByTimeAsync(10);
+        await store.saveInServer();
+
+        // Payload sanitizado
+        const sentPayload = axiosPost.mock.calls[0][1];
+        expect(sentPayload.details).toEqual({ info: 'keep-this' });
+        expect(sentPayload.details).not.toHaveProperty('sensitive');
+
+        // Fonte original intacta
+        expect(rawCustomData.details.sensitive).toBe('do-not-send');
+        expect(rawCustomData.details.info).toBe('keep-this');
     });
 
     it('Caso 4: Tratamento de save_return === true atualiza store.data sem loop recursivo', async () => {
