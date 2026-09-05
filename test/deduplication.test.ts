@@ -3,15 +3,21 @@ import { createApp, defineComponent, ref, computed } from 'vue';
 import { createPinia, defineStore, setActivePinia } from 'pinia';
 import { createMaxPinia } from '../src';
 
-vi.mock('localforage', () => ({
-    default: {
+vi.mock('localforage', () => {
+    const mockStorageInstance = {
         config: vi.fn(),
         getItem: vi.fn().mockResolvedValue(null),
         setItem: vi.fn().mockResolvedValue(null),
         removeItem: vi.fn().mockResolvedValue(null),
-        clear: vi.fn().mockResolvedValue(null)
-    }
-}));
+        clear: vi.fn().mockResolvedValue(null),
+        keys: vi.fn().mockResolvedValue([]),
+        createInstance: vi.fn()
+    };
+    mockStorageInstance.createInstance = vi.fn((_opts?: any) => mockStorageInstance);
+    return {
+        default: mockStorageInstance
+    };
+});
 
 let storeCounter = 0;
 
@@ -546,9 +552,16 @@ describe('Estratégias de Deduplicação de Requisições', () => {
             expect(stopMock).toHaveBeenCalled();
         });
 
-        it('Caso 12: clearAll limpa todo o armazenamento localforage', async () => {
+        it('Caso 12: clearAll limpa apenas as chaves da store específica sem destruir o banco global', async () => {
             const localforage = (await import('localforage')).default;
             const clearSpy = vi.spyOn(localforage, 'clear').mockResolvedValue(null as any);
+            const removeItemSpy = vi.spyOn(localforage, 'removeItem').mockResolvedValue(null as any);
+            const currentStoreId = `test.dedup.${storeCounter + 1}`;
+            vi.spyOn(localforage, 'keys').mockResolvedValue([
+                `${currentStoreId}.global`,
+                `${currentStoreId}.user-1`,
+                'otherStore.global'
+            ]);
 
             const store = setupStore(
                 { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() } as any },
@@ -561,7 +574,11 @@ describe('Estratégias de Deduplicação de Requisições', () => {
 
             await vi.advanceTimersByTimeAsync(10);
             await store.clearAll();
-            expect(clearSpy).toHaveBeenCalled();
+
+            expect(clearSpy).not.toHaveBeenCalled();
+            expect(removeItemSpy).toHaveBeenCalledWith(`${currentStoreId}.global`);
+            expect(removeItemSpy).toHaveBeenCalledWith(`${currentStoreId}.user-1`);
+            expect(removeItemSpy).not.toHaveBeenCalledWith('otherStore.global');
         });
 
         it('Caso 13: Lazy loading de axios quando não provido na config inicial', async () => {

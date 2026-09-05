@@ -4,15 +4,21 @@ import { createPinia, defineStore, setActivePinia } from 'pinia';
 import { createMaxPinia } from '../src';
 import localforage from 'localforage';
 
-vi.mock('localforage', () => ({
-    default: {
+vi.mock('localforage', () => {
+    const mockStorageInstance = {
         config: vi.fn(),
         getItem: vi.fn().mockResolvedValue(null),
         setItem: vi.fn().mockResolvedValue(null),
         removeItem: vi.fn().mockResolvedValue(null),
-        clear: vi.fn().mockResolvedValue(null)
-    }
-}));
+        clear: vi.fn().mockResolvedValue(null),
+        keys: vi.fn().mockResolvedValue([]),
+        createInstance: vi.fn()
+    };
+    mockStorageInstance.createInstance = vi.fn((_opts?: any) => mockStorageInstance);
+    return {
+        default: mockStorageInstance
+    };
+});
 
 function setup(config: Parameters<typeof createMaxPinia>[0] = {}, storeSetup: () => any = () => ({})) {
     const pinia = createPinia();
