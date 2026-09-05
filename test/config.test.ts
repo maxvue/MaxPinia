@@ -50,6 +50,23 @@ describe('createMaxPinia config', () => {
         expect(axiosGet.mock.calls[0][0]).toBe('my.route?id=7');
     });
 
+    it('anexa query string com & quando a rota base configurada já possui parâmetros', async () => {
+        const axiosGet = vi.fn().mockResolvedValue({ data: { ok: true } });
+        setup({ axios: { get: axiosGet, post: vi.fn() } as any }, () => {
+            const isCached = ref(true);
+            const data = ref<Record<string, any>>({});
+            const options = computed(() => ({
+                get: {
+                    route: '/api/v1/orders?type=open',
+                    data: { page: 1 }
+                }
+            }));
+            return { isCached, data, options };
+        });
+        await vi.waitFor(() => expect(axiosGet).toHaveBeenCalled());
+        expect(axiosGet.mock.calls[0][0]).toBe('/api/v1/orders?type=open&page=1');
+    });
+
     it('usa resolveRoute na URL do POST (saveInServer)', async () => {
         const axiosPost = vi.fn().mockResolvedValue({ data: {} });
         const resolveRoute = vi.fn((route: string) => `/resolved/${route}`);
