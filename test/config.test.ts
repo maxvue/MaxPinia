@@ -3,15 +3,21 @@ import { createApp, defineComponent, ref, computed } from 'vue';
 import { createPinia, defineStore, setActivePinia } from 'pinia';
 import { createMaxPinia } from '../src';
 
-vi.mock('localforage', () => ({
-    default: {
+vi.mock('localforage', () => {
+    const mockStorageInstance = {
         config: vi.fn(),
         getItem: vi.fn().mockResolvedValue(null),
         setItem: vi.fn().mockResolvedValue(null),
         removeItem: vi.fn().mockResolvedValue(null),
-        clear: vi.fn().mockResolvedValue(null)
-    }
-}));
+        clear: vi.fn().mockResolvedValue(null),
+        keys: vi.fn().mockResolvedValue([]),
+        createInstance: vi.fn()
+    };
+    mockStorageInstance.createInstance = vi.fn((_opts?: any) => mockStorageInstance);
+    return {
+        default: mockStorageInstance
+    };
+});
 
 import localforage from 'localforage';
 
@@ -50,6 +56,23 @@ describe('createMaxPinia config', () => {
         expect(axiosGet.mock.calls[0][0]).toBe('my.route?id=7');
     });
 
+    it('anexa query string com & quando a rota base configurada já possui parâmetros', async () => {
+        const axiosGet = vi.fn().mockResolvedValue({ data: { ok: true } });
+        setup({ axios: { get: axiosGet, post: vi.fn() } as any }, () => {
+            const isCached = ref(true);
+            const data = ref<Record<string, any>>({});
+            const options = computed(() => ({
+                get: {
+                    route: '/api/v1/orders?type=open',
+                    data: { page: 1 }
+                }
+            }));
+            return { isCached, data, options };
+        });
+        await vi.waitFor(() => expect(axiosGet).toHaveBeenCalled());
+        expect(axiosGet.mock.calls[0][0]).toBe('/api/v1/orders?type=open&page=1');
+    });
+
     it('usa resolveRoute na URL do POST (saveInServer)', async () => {
         const axiosPost = vi.fn().mockResolvedValue({ data: {} });
         const resolveRoute = vi.fn((route: string) => `/resolved/${route}`);
@@ -75,7 +98,7 @@ describe('createMaxPinia config', () => {
 
     it('repassa storeName customizado ao localforage', async () => {
         setup({ axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() } as any, storeName: 'pinia-with-cache-plugin' }, cachedStoreSetup);
-        expect(localforage.config).toHaveBeenCalledWith(expect.objectContaining({ storeName: 'pinia-with-cache-plugin' }));
+        expect(localforage.createInstance).toHaveBeenCalledWith(expect.objectContaining({ storeName: 'pinia-with-cache-plugin' }));
     });
 
     it('não envia header X-CSRF-TOKEN quando getSessionToken retorna null ou não é informado', async () => {
