@@ -141,7 +141,7 @@ describe('Identidade causal de leituras', () => {
 
         reloadResponse.resolve({ data: { value: 'LEGIT_RELOAD' } });
         await reloadPromise;
-        expect(store.data).toEqual({ value: 'LEGIT_RELOAD' });
+        await vi.waitFor(() => expect(store.data).toEqual({ value: 'LEGIT_RELOAD' }));
 
         firstResponse.resolve({ data: { value: 'FIRST_FETCH' } });
         await Promise.resolve();

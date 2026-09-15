@@ -386,42 +386,57 @@ function maxPiniaPlugin(
 
         if (!status.value.cache.get.is_success || status.value.cache.get.is_blank) setLoading('server');
 
-        try {
-            const axios = await getAxios();
-            if (!isCurrentRequest()) return;
-
-            const response = await axios.get(route_url, { timeout: cfg.requestTimeout, signal: requestController.signal });
-            if (!isCurrentRequest()) return;
-
-            pauseSave();
-            if (typeof store.onServerData === 'function') {
-                store.onServerData(response.data, requestMeta);
-            } else {
-                store.data = store.is_shallow || store.isShallow ? cloneDeep(response.data) : response.data;
-            }
-            resumeSave();
-            status.value.server.get.is_success = true;
-            status.value.server.get.is_error = false;
-            saveInCache()
-                .then()
-                .catch((error: any) => console.error('[max-pinia] ERROR IN SAVE CACHE: ' + error.name, error));
-
-            if (store.afterLoad) store.afterLoad(requestMeta);
-        } catch (error: any) {
-            if (isCurrentRequest() && error.name !== 'CanceledError') {
-                console.error('[max-pinia] LOAD SERVER - Route: ' + route_name + ' - Error: ' + error.name, { data_load: data_get, error });
-                status.value.server.get.is_success = false;
-                status.value.server.get.is_error = true;
-                status.value.server.get.error = error;
-            }
-        } finally {
+        const finishCurrentRequest = () => {
             if (requestSequence === activeServerRequestSequence) {
                 status.value.server.get.is_requesting = false;
                 status.value.server.get.is_requested = true;
                 if (signal_get_request.value === requestController) signal_get_request.value = null;
                 stopLoading(identity.key, 'server');
             }
+        };
+
+        let axios: any;
+        try {
+            axios = await getAxios();
+        } catch (error: any) {
+            if (isCurrentRequest()) {
+                status.value.server.get.is_error = true;
+                status.value.server.get.error = error;
+            }
+            finishCurrentRequest();
+            return;
         }
+
+        if (!isCurrentRequest()) return;
+
+        void axios.get(route_url, { timeout: cfg.requestTimeout, signal: requestController.signal })
+            .then((response: any) => {
+                if (!isCurrentRequest()) return;
+
+                pauseSave();
+                if (typeof store.onServerData === 'function') {
+                    store.onServerData(response.data, requestMeta);
+                } else {
+                    store.data = store.is_shallow || store.isShallow ? cloneDeep(response.data) : response.data;
+                }
+                resumeSave();
+                status.value.server.get.is_success = true;
+                status.value.server.get.is_error = false;
+                saveInCache()
+                    .then()
+                    .catch((error: any) => console.error('[max-pinia] ERROR IN SAVE CACHE: ' + error.name, error));
+
+                if (store.afterLoad) store.afterLoad(requestMeta);
+            })
+            .catch((error: any) => {
+                if (isCurrentRequest() && error.name !== 'CanceledError') {
+                    console.error('[max-pinia] LOAD SERVER - Route: ' + route_name + ' - Error: ' + error.name, { data_load: data_get, error });
+                    status.value.server.get.is_success = false;
+                    status.value.server.get.is_error = true;
+                    status.value.server.get.error = error;
+                }
+            })
+            .finally(finishCurrentRequest);
     };
 
     const reload = async () => {
