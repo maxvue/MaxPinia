@@ -14,6 +14,8 @@ coverage
 .gemini
 .opencode/
 CLAUDE.md
+AGENTS.md
+GEMINI.md
 /.worktrees
 /.max-code-worktrees
 *.tgz
