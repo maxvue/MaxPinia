@@ -15,4 +15,5 @@ coverage
 .opencode/
 CLAUDE.md
 /.worktrees
+/.max-code-worktrees
 *.tgz
