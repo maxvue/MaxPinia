@@ -1,0 +1,120 @@
+{
+  "version": 2,
+  "planRevision": "ca28b2ad087a42e495b5e9b647e86e7d1989089fe76551ae6dd5a6887aebe746",
+  "tasks": [
+    {
+      "id": "T0",
+      "status": "completed",
+      "files": [],
+      "validations": []
+    },
+    {
+      "id": "T1",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/deduplication.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T2",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "src/types.ts",
+        "test/asyncCompletion.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T3",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/deduplication.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T4",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/disposal.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T5",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/useAsyncStatus.test.ts",
+        "README.md"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T7",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/defaultData.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T8",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/autosave.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T9",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/readIdentity.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T10",
+      "status": "completed",
+      "files": [
+        "src/plugin.ts",
+        "test/cacheWriteStatus.test.ts"
+      ],
+      "validations": []
+    },
+    {
+      "id": "T6",
+      "status": "completed",
+      "files": [],
+      "validations": []
+    }
+  ],
+  "verification": {
+    "revision": "c3849e8d5e632d6958dc02271aabe7b93e6feb78de08385a5ea228238b2d57e8",
+    "checks": [
+      {
+        "command": "npm test",
+        "revision": "c3849e8d5e632d6958dc02271aabe7b93e6feb78de08385a5ea228238b2d57e8",
+        "result": "passed",
+        "exitCode": 0
+      },
+      {
+        "command": "npm run build",
+        "revision": "c3849e8d5e632d6958dc02271aabe7b93e6feb78de08385a5ea228238b2d57e8",
+        "result": "passed",
+        "exitCode": 0
+      }
+    ]
+  },
+  "updatedAt": 1792167600000,
+  "nextAction": "Realizar auditoria de conformidade com Jev e apresentar relatório final."
+}

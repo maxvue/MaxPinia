@@ -150,4 +150,122 @@ describe('Identidade causal de leituras', () => {
         expect(store.data).toEqual({ value: 'LEGIT_RELOAD' });
         expect(store.receivedMetas).toEqual([{ seq: 2, projectId: 'A' }]);
     });
+
+    describe('T9: options.id na identidade efetiva e precedência de store.id', () => {
+        it('options.id reativo carrega nova identidade quando store.id é ausente', async () => {
+            const cacheA = deferred<any>();
+            const cacheB = deferred<any>();
+            storage.getItem.mockImplementation((key: string) => key.endsWith('.A') ? cacheA.promise : cacheB.promise);
+
+            const optId = ref('A');
+            const pinia = createPinia();
+            pinia.use(createMaxPinia({ axios: { get: vi.fn(), post: vi.fn() } }));
+            const app = createApp(defineComponent({ render: () => null }));
+            app.use(pinia);
+            setActivePinia(pinia);
+
+            const useStore = defineStore(`read.opt_identity.${++storeCounter}`, () => {
+                const isCached = ref(true);
+                const only_cache = ref(true);
+                const data = ref<any>(null);
+                const options = computed(() => ({
+                    id: optId.value,
+                    get: { route: '/items' }
+                }));
+                return { isCached, only_cache, data, options };
+            });
+
+            const store = useStore();
+
+            await vi.waitFor(() => expect(storage.getItem).toHaveBeenCalledWith(expect.stringMatching(/\.A$/)));
+
+            // Troca options.id para B com store.id ausente
+            optId.value = 'B';
+            await nextTick();
+
+            await vi.waitFor(() => expect(storage.getItem).toHaveBeenCalledWith(expect.stringMatching(/\.B$/)));
+
+            // B resolve primeiro
+            cacheB.resolve({ data: { title: 'Item B' } });
+            await vi.waitFor(() => expect(store.data).toEqual({ title: 'Item B' }));
+
+            // A resolve atrasado: deve ser descartado
+            cacheA.resolve({ data: { title: 'Item A atrasado' } });
+            await Promise.resolve();
+            await nextTick();
+
+            expect(store.data).toEqual({ title: 'Item B' });
+        });
+
+        it('store.id definido tem prioridade estrita e ignora mudanças em options.id', async () => {
+            const axiosGet = vi.fn().mockResolvedValue({ data: { name: 'Fixed' } });
+            const optId = ref('opt-1');
+
+            const pinia = createPinia();
+            pinia.use(createMaxPinia({ axios: { get: axiosGet, post: vi.fn() } }));
+            const app = createApp(defineComponent({ render: () => null }));
+            app.use(pinia);
+            setActivePinia(pinia);
+
+            const useStore = defineStore(`read.priority_identity.${++storeCounter}`, () => {
+                const isCached = ref(true);
+                const id = ref('store-fixed-id');
+                const data = ref<any>(null);
+                const options = computed(() => ({
+                    id: optId.value,
+                    get: { route: '/fixed' }
+                }));
+                return { isCached, id, data, options };
+            });
+
+            const store = useStore();
+
+            await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledTimes(1));
+
+            // Altera options.id, mas store.id continua sendo 'store-fixed-id'
+            optId.value = 'opt-2';
+            await nextTick();
+            await nextTick();
+
+            // Nenhuma nova requisição deve ser feita porque a chave efetiva não mudou
+            expect(axiosGet).toHaveBeenCalledTimes(1);
+        });
+
+        it('chave correta no saveInCache após carregar nova identidade', async () => {
+            const setItemCalls: { key: string; val: any }[] = [];
+            storage.setItem.mockImplementation((key: string, val: any) => {
+                setItemCalls.push({ key, val });
+                return Promise.resolve(null);
+            });
+
+            const currentId = ref('doc-1');
+            const pinia = createPinia();
+            pinia.use(createMaxPinia({ axios: { get: vi.fn(), post: vi.fn() } }));
+            const app = createApp(defineComponent({ render: () => null }));
+            app.use(pinia);
+            setActivePinia(pinia);
+
+            const useStore = defineStore(`read.save_cache_id.${++storeCounter}`, () => {
+                const isCached = ref(true);
+                const only_cache = ref(true);
+                const id = currentId;
+                const data = ref<any>({ content: 'Initial 1' });
+                return { isCached, only_cache, id, data };
+            });
+
+            const store = useStore();
+
+            await store.saveInCache();
+            expect(setItemCalls.some(c => c.key.endsWith('.doc-1'))).toBe(true);
+
+            // Troca id para doc-2
+            currentId.value = 'doc-2';
+            store.data = { content: 'Initial 2' };
+            await nextTick();
+
+            await store.saveInCache();
+            expect(setItemCalls.some(c => c.key.endsWith('.doc-2'))).toBe(true);
+        });
+    });
 });
+

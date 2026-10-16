@@ -644,4 +644,192 @@ describe('Pipeline de Auto-Save Reativo', () => {
             (globalThis as any).document = originalDoc;
         }
     });
+
+    describe('T8: Identidade causal do autosave (scheduledAutosaveToken)', () => {
+        it('Caso 13: Edição em A seguida de troca para B antes de 300ms descarta envio automático', async () => {
+            const axiosPost = vi.fn().mockResolvedValue({ data: { success: true } });
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const id = ref('item-A');
+                    const data = ref<Record<string, any>>({ title: 'A_init', count: 1 });
+                    const options = computed(() => ({
+                        save: `/api/${id.value}/save`
+                    }));
+                    return { isCached, id, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+            expect(axiosPost).not.toHaveBeenCalled();
+
+            // Edição em A
+            store.data.title = 'A_editado';
+            await nextTick();
+
+            // Antes de 300ms (100ms), navega / troca para item-B
+            await vi.advanceTimersByTimeAsync(100);
+            store.id = 'item-B';
+            await nextTick();
+
+            // Avança o tempo além do debounce inicial de 300ms
+            await vi.advanceTimersByTimeAsync(300);
+            await nextTick();
+
+            // Nenhum POST deve ter sido enviado
+            expect(axiosPost).not.toHaveBeenCalled();
+        });
+
+        it('Caso 14: Nova edição em B após navegação produz somente POST de B', async () => {
+            const axiosPost = vi.fn().mockResolvedValue({ data: { success: true } });
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const id = ref('item-A');
+                    const data = ref<Record<string, any>>({ title: 'A_init', count: 1 });
+                    const options = computed(() => ({
+                        save: `/api/${id.value}/save`
+                    }));
+                    return { isCached, id, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Edição em A
+            store.data.title = 'A_editado';
+            await nextTick();
+
+            // Troca para B
+            await vi.advanceTimersByTimeAsync(100);
+            store.id = 'item-B';
+            store.data.title = 'B_init';
+            await nextTick();
+
+            // Nova edição válida em B
+            store.data.title = 'B_editado';
+            await nextTick();
+
+            // Aguarda os 300ms do debounce da edição de B
+            await vi.advanceTimersByTimeAsync(300);
+            await nextTick();
+
+            // Apenas o POST de B deve ter sido disparado
+            expect(axiosPost).toHaveBeenCalledTimes(1);
+            expect(axiosPost).toHaveBeenCalledWith(
+                '/api/item-B/save',
+                expect.objectContaining({ title: 'B_editado' }),
+                expect.anything()
+            );
+        });
+
+        it('Caso 15: Ciclo A -> B -> A invalida o token da edição original de A', async () => {
+            const axiosPost = vi.fn().mockResolvedValue({ data: { success: true } });
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const id = ref('item-A');
+                    const data = ref<Record<string, any>>({ title: 'A_original', count: 1 });
+                    const options = computed(() => ({
+                        save: `/api/${id.value}/save`
+                    }));
+                    return { isCached, id, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Edição original em A
+            store.data.title = 'A_mutacao_antiga';
+            await nextTick();
+
+            // Aos 100ms muda para B
+            await vi.advanceTimersByTimeAsync(100);
+            store.id = 'item-B';
+            await nextTick();
+
+            // Aos 200ms volta para A (sem nova edição de dados)
+            await vi.advanceTimersByTimeAsync(100);
+            store.id = 'item-A';
+            await nextTick();
+
+            // Avança até o término do timer original
+            await vi.advanceTimersByTimeAsync(200);
+            await nextTick();
+
+            // O token de geração antiga deve impedir o POST desatualizado
+            expect(axiosPost).not.toHaveBeenCalled();
+        });
+
+        it('Caso 16: Pausa ou desabilitação entre agendamento e disparo descarta autosave', async () => {
+            const axiosPost = vi.fn().mockResolvedValue({ data: { success: true } });
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const enabled = ref(true);
+                    const data = ref<Record<string, any>>({ title: 'valor_inicial' });
+                    const options = computed(() => ({ save: '/api/save' }));
+                    return { isCached, enabled, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Edita dados
+            store.data.title = 'editado_antes_da_pausa';
+            await nextTick();
+
+            // Aos 100ms pausa o salvamento
+            await vi.advanceTimersByTimeAsync(100);
+            store.pauseSave();
+
+            // Avança o tempo do debounce
+            await vi.advanceTimersByTimeAsync(300);
+            await nextTick();
+
+            expect(axiosPost).not.toHaveBeenCalled();
+
+            // Retoma salvamento: chamada manual explícita funciona perfeitamente
+            store.resumeSave();
+            await store.saveInServer();
+            expect(axiosPost).toHaveBeenCalledTimes(1);
+        });
+
+        it('Caso 17: Troca de rota no save options durante o debounce descarta envio desatualizado', async () => {
+            const axiosPost = vi.fn().mockResolvedValue({ data: { success: true } });
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const routeName = ref('/api/v1/save');
+                    const data = ref<Record<string, any>>({ val: 1 });
+                    const options = computed(() => ({ save: routeName.value }));
+                    return { isCached, routeName, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Edita dados
+            store.data.val = 2;
+            await nextTick();
+
+            // Muda rota antes dos 300ms
+            await vi.advanceTimersByTimeAsync(100);
+            store.routeName = '/api/v2/save';
+            await nextTick();
+
+            // Avança o debounce original
+            await vi.advanceTimersByTimeAsync(250);
+            await nextTick();
+
+            // O envio com rota desatualizada é descartado
+            expect(axiosPost).not.toHaveBeenCalled();
+        });
+    });
 });
+

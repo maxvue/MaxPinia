@@ -168,4 +168,59 @@ describe('useAsyncStatus', () => {
 
         expect(asyncStatus.value).toBeNull();
     });
+
+    it('Cenário 6: Produtor e consumidor integrados com store cacheada e emissão de eventos reais', async () => {
+        const { createPinia, defineStore, setActivePinia } = await import('pinia');
+        const { createMaxPinia } = await import('../src');
+        const { ref, createApp, defineComponent, nextTick } = await import('vue');
+
+        const eventsReceived: Status[] = [];
+        const eventHandler = (e: Event) => {
+            eventsReceived.push((e as CustomEvent<Status>).detail);
+        };
+        document.addEventListener('status-updated', eventHandler);
+
+        const pinia = createPinia();
+        pinia.use(createMaxPinia({ axios: { get: vi.fn(), post: vi.fn() } as any }));
+        const app = createApp(defineComponent({ render: () => null }));
+        app.use(pinia);
+        setActivePinia(pinia);
+
+        const useTestStore = defineStore('test.asyncStatus.store', () => {
+            const isCached = ref(true);
+            const data = ref({});
+            return { isCached, data };
+        });
+
+        const store = useTestStore();
+        await nextTick();
+
+        // Limpa eventos da inicialização
+        eventsReceived.length = 0;
+
+        // Modifica uma flag interna aninhada sem substituir o objeto status
+        store.status.server.get.is_requesting = true;
+        await nextTick();
+
+        expect(eventsReceived.length).toBeGreaterThan(0);
+        expect(eventsReceived[eventsReceived.length - 1].server.get.is_requesting).toBe(true);
+
+        // Modifica a referência de error
+        const customError = new Error('Falha simulada');
+        store.status.server.get.error = customError;
+        store.status.server.get.is_error = true;
+        await nextTick();
+
+        expect(eventsReceived[eventsReceived.length - 1].server.get.error).toBe(customError);
+
+        // Executa reset de status
+        eventsReceived.length = 0;
+        store.status.reset();
+        await nextTick();
+
+        expect(eventsReceived.length).toBeGreaterThan(0);
+        expect(eventsReceived[eventsReceived.length - 1].server.get.is_error).toBe(false);
+
+        document.removeEventListener('status-updated', eventHandler);
+    });
 });

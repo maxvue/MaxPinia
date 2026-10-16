@@ -74,10 +74,10 @@ export interface MaxPiniaConfig {
 declare module 'pinia' {
     export interface PiniaCustomProperties {
         cancelLoad: (retryInSeconds?: number | boolean | null) => void;
-        reload: () => void;
+        reload: () => Promise<void>;
         setLoadingMessage: (message: string) => void;
         clearAll: () => Promise<void>;
-        saveInServer: () => void;
+        saveInServer: () => Promise<void>;
         saveInCache: () => Promise<void>;
         default_value: any;
         status: Status;

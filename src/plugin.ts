@@ -106,7 +106,8 @@ function maxPiniaPlugin(
         : (localforage.config({ name: cache_name.value, storeName: store_name }), localforage);
 
     const loading = cfg.loading;
-    const default_value = ref(cloneDeep(store.data));
+    const userDefault = getIn(store, ['default_value', 'default_data', 'defaultData', 'dataDefault', 'data_default', 'default']) ?? store.data;
+    const default_value = ref(cloneDeep(toRaw(userDefault)));
 
     store.data = {};
 
@@ -132,11 +133,16 @@ function maxPiniaPlugin(
         routeData: Record<string, any>;
     }
 
+    let isDisposed = false;
     let identityGeneration = 0;
     let serverRequestSequence = 0;
     let activeServerRequestSequence = 0;
     let cacheRequestSequence = 0;
     let activeCacheRequestSequence = 0;
+    let postRequestSequence = 0;
+    let activePostRequestSequence = 0;
+    let cacheSaveSequence = 0;
+    let activeCacheSaveSequence = 0;
 
     const captureReadIdentity = (): ReadIdentity => ({
         generation: identityGeneration,
@@ -145,14 +151,42 @@ function maxPiniaPlugin(
         routeData: cloneDeep(toRaw(getRouteData()))
     });
 
-    const isReadIdentityCurrent = (identity: ReadIdentity): boolean => identity.generation === identityGeneration
+    const isReadIdentityCurrent = (identity: ReadIdentity): boolean =>
+        !isDisposed
+        && identity.generation === identityGeneration
         && identity.key === getKey()
         && identity.routeName === getRouteName()
         && isEqual(identity.routeData, getRouteData())
         && store.enabled !== false
         && store.options?.enabled !== false;
 
-    const setDefaultData = () => store.data = store.default_value ?? store.default_data ?? store.defaultData ?? store.dataDefault ?? store.data_default ?? store.default ?? default_value.value ?? {};
+    interface PostIdentity {
+        generation: number;
+        key: string;
+        routeName: string | null;
+    }
+
+    const capturePostIdentity = (): PostIdentity => ({
+        generation: identityGeneration,
+        key: getKey(),
+        routeName: postRouteName()
+    });
+
+    const isPostIdentityCurrent = (identity: PostIdentity): boolean =>
+        !isDisposed
+        && identity.generation === identityGeneration
+        && identity.key === getKey()
+        && identity.routeName === postRouteName()
+        && store.enabled !== false
+        && store.options?.enabled !== false;
+
+    const resolveDefaultData = () => {
+        const val = getIn(store, ['default_data', 'defaultData', 'dataDefault', 'data_default', 'default']) ?? default_value.value ?? {};
+        return cloneDeep(toRaw(val));
+    };
+    const setDefaultData = () => {
+        store.data = resolveDefaultData();
+    };
 
     const signal_get_request: Ref = ref(null);
     const progress_loading: Ref = ref(null);
@@ -191,9 +225,23 @@ function maxPiniaPlugin(
     };
 
     const originalStatusReset = status.reset;
+    const attachResetMethod = () => {
+        if (status.value && typeof status.value === 'object') {
+            Object.defineProperty(status.value, 'reset', {
+                value: () => {
+                    status.reset();
+                },
+                writable: true,
+                configurable: true
+            });
+        }
+    };
+    attachResetMethod();
+
     status.reset = () => {
         clearStatusTimers();
         originalStatusReset();
+        attachResetMethod();
     };
 
     const trigger_server_get = ref(0);
@@ -201,10 +249,45 @@ function maxPiniaPlugin(
     const trigger_cache_get = ref(0);
     const trigger_cache_save = ref(0);
 
-    watch(status, () => {
-        if (typeof document === 'undefined') return;
-        document.dispatchEvent(new CustomEvent('status-updated', { detail: status.value, bubbles: true }));
-    });
+    watch(
+        () => [
+            status.value,
+            status.value?.server?.get?.is_requesting,
+            status.value?.server?.get?.is_requesting_now,
+            status.value?.server?.get?.is_requested,
+            status.value?.server?.get?.is_blank,
+            status.value?.server?.get?.is_success,
+            status.value?.server?.get?.is_success_now,
+            status.value?.server?.get?.is_error,
+            status.value?.server?.get?.error,
+            status.value?.server?.save?.is_requesting,
+            status.value?.server?.save?.is_requesting_now,
+            status.value?.server?.save?.is_requested,
+            status.value?.server?.save?.is_success,
+            status.value?.server?.save?.is_success_now,
+            status.value?.server?.save?.is_error,
+            status.value?.server?.save?.error,
+            status.value?.cache?.get?.is_requesting,
+            status.value?.cache?.get?.is_requesting_now,
+            status.value?.cache?.get?.is_requested,
+            status.value?.cache?.get?.is_blank,
+            status.value?.cache?.get?.is_success,
+            status.value?.cache?.get?.is_success_now,
+            status.value?.cache?.get?.is_error,
+            status.value?.cache?.get?.error,
+            status.value?.cache?.save?.is_requesting,
+            status.value?.cache?.save?.is_requesting_now,
+            status.value?.cache?.save?.is_requested,
+            status.value?.cache?.save?.is_success,
+            status.value?.cache?.save?.is_success_now,
+            status.value?.cache?.save?.is_error,
+            status.value?.cache?.save?.error
+        ],
+        () => {
+            if (typeof document === 'undefined') return;
+            document.dispatchEvent(new CustomEvent('status-updated', { detail: status.value, bubbles: true }));
+        }
+    );
 
     const is_done = computed(() => status.value.server.get.is_success);
     const is_done_to_show = computed(() => (status.value.server.get.is_success && !status.value.server.get.is_blank) || status.value.cache.get.is_success);
@@ -336,7 +419,10 @@ function maxPiniaPlugin(
         }
         is_cancelling.value = false;
 
-        if (signal_get_request.value) signal_get_request.value.abort();
+        if (signal_get_request.value) {
+            signal_get_request.value.abort();
+            signal_get_request.value = null;
+        }
         if (retryInSeconds === true || retryInSeconds === 0) retryInSeconds = 5;
         const seconds = Number(retryInSeconds);
         if (seconds > 0) {
@@ -344,13 +430,14 @@ function maxPiniaPlugin(
             cancel_timer = setTimeout(() => {
                 cancel_timer = null;
                 is_cancelling.value = false;
-                loadInServer().then();
+                if (!isDisposed) void loadInServer();
             }, seconds * 1000);
         }
     };
 
-    const loadInServer = async () => {
+    const loadInServer = async (): Promise<void> => {
         cfg.onActivity();
+        if (isDisposed) return;
         if (is_cancelling.value) return;
         if (store.enabled === false || store.options?.enabled === false) return;
 
@@ -372,15 +459,13 @@ function maxPiniaPlugin(
         const requestController = new AbortController();
         signal_get_request.value = requestController;
 
-        const data_get = getRouteData();
-        const route_url = cfg.resolveRoute(route_name, data_get);
         const identity = captureReadIdentity();
         const requestSequence = ++serverRequestSequence;
         activeServerRequestSequence = requestSequence;
-        const requestMeta = typeof store.createRequestMeta === 'function'
-            ? store.createRequestMeta()
-            : { route: route_name, data: cloneDeep(toRaw(data_get)), key: identity.key };
-        const isCurrentRequest = () => requestSequence === activeServerRequestSequence
+
+        const isCurrentRequest = () =>
+            !isDisposed
+            && requestSequence === activeServerRequestSequence
             && !requestController.signal.aborted
             && isReadIdentityCurrent(identity);
 
@@ -390,13 +475,20 @@ function maxPiniaPlugin(
             if (requestSequence === activeServerRequestSequence) {
                 status.value.server.get.is_requesting = false;
                 status.value.server.get.is_requested = true;
-                if (signal_get_request.value === requestController) signal_get_request.value = null;
                 stopLoading(identity.key, 'server');
             }
+            if (signal_get_request.value === requestController) signal_get_request.value = null;
         };
 
         let axios: any;
+        let route_url: string;
+        let requestMeta: any;
+        const data_get = getRouteData();
         try {
+            route_url = cfg.resolveRoute(route_name, data_get);
+            requestMeta = typeof store.createRequestMeta === 'function'
+                ? store.createRequestMeta()
+                : { route: route_name, data: cloneDeep(toRaw(data_get)), key: identity.key };
             axios = await getAxios();
         } catch (error: any) {
             if (isCurrentRequest()) {
@@ -407,56 +499,71 @@ function maxPiniaPlugin(
             return;
         }
 
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) {
+            finishCurrentRequest();
+            return;
+        }
 
-        void axios.get(route_url, { timeout: cfg.requestTimeout, signal: requestController.signal })
-            .then((response: any) => {
-                if (!isCurrentRequest()) return;
+        try {
+            const response = await axios.get(route_url, { timeout: cfg.requestTimeout, signal: requestController.signal });
+            if (!isCurrentRequest()) return;
 
-                pauseSave();
+            pauseSave();
+            try {
                 if (typeof store.onServerData === 'function') {
                     store.onServerData(response.data, requestMeta);
                 } else {
                     store.data = store.is_shallow || store.isShallow ? cloneDeep(response.data) : response.data;
                 }
+            } finally {
                 resumeSave();
-                status.value.server.get.is_success = true;
-                status.value.server.get.is_error = false;
-                saveInCache()
-                    .then()
-                    .catch((error: any) => console.error('[max-pinia] ERROR IN SAVE CACHE: ' + error.name, error));
+            }
 
-                if (store.afterLoad) store.afterLoad(requestMeta);
-            })
-            .catch((error: any) => {
-                if (isCurrentRequest() && error.name !== 'CanceledError') {
-                    console.error('[max-pinia] LOAD SERVER - Route: ' + route_name + ' - Error: ' + error.name, { data_load: data_get, error });
-                    status.value.server.get.is_success = false;
-                    status.value.server.get.is_error = true;
-                    status.value.server.get.error = error;
-                }
-            })
-            .finally(finishCurrentRequest);
+            status.value.server.get.is_success = true;
+            status.value.server.get.is_error = false;
+            status.value.server.get.error = null;
+
+            await saveInCache().catch((error: any) => console.error('[max-pinia] ERROR IN SAVE CACHE: ' + error.name, error));
+
+            if (isCurrentRequest() && store.afterLoad) {
+                store.afterLoad(requestMeta);
+            }
+        } catch (error: any) {
+            if (isCurrentRequest() && error.name !== 'CanceledError') {
+                console.error('[max-pinia] LOAD SERVER - Route: ' + route_name + ' - Error: ' + error.name, { data_load: data_get, error });
+                status.value.server.get.is_success = false;
+                status.value.server.get.is_error = true;
+                status.value.server.get.error = error;
+            }
+        } finally {
+            finishCurrentRequest();
+        }
     };
 
-    const reload = async () => {
+    const reload = async (): Promise<void> => {
+        const identity = captureReadIdentity();
         await loadInServer();
-        if (store.afterReload) store.afterReload();
+        if (!isDisposed && isReadIdentityCurrent(identity) && store.afterReload) {
+            store.afterReload();
+        }
     };
 
     const loadInCache = () => {
         cfg.onActivity();
+        if (isDisposed) return;
         if (store.enabled === false || store.options?.enabled === false) return;
 
         const identity = captureReadIdentity();
         const requestSequence = ++cacheRequestSequence;
         activeCacheRequestSequence = requestSequence;
-        const isCurrentRequest = () => requestSequence === activeCacheRequestSequence && isReadIdentityCurrent(identity);
+        const isCurrentRequest = () => !isDisposed && requestSequence === activeCacheRequestSequence && isReadIdentityCurrent(identity);
 
         trigger_cache_get.value++;
         status.value.cache.get.is_requesting = true;
         status.value.cache.get.is_requested = false;
         status.value.cache.get.is_success = false;
+        status.value.cache.get.is_error = false;
+        status.value.cache.get.error = null;
         setLoading('loading - cache');
         storage.getItem(identity.key)
             .then((data_cache: any) => {
@@ -493,6 +600,11 @@ function maxPiniaPlugin(
                 status.value.cache.get.is_success = false;
                 status.value.cache.get.is_error = true;
                 status.value.cache.get.error = error;
+
+                // C: Cache indisponível tenta GET no backend uma única vez
+                loadInServer()
+                    .then()
+                    .catch((err: any) => console.error('[max-pinia] IN LOAD SERVER AFTER CACHE ERROR - Route: ' + getRouteName() + ' - Error: ' + err.name, { get_data: getRouteData(), error: err }));
             })
             .finally(() => {
                 if (!isCurrentRequest()) return;
@@ -511,8 +623,9 @@ function maxPiniaPlugin(
 
     watch(includeInCacheValues, () => saveInCache(), { deep: true });
 
-    const saveInCache = async (data_save: any = null) => {
+    const saveInCache = async (data_save: any = null): Promise<void> => {
         cfg.onActivity();
+        if (isDisposed) return;
         if (store.enabled === false || store.options?.enabled === false) {
             setDefaultData();
             return;
@@ -520,28 +633,44 @@ function maxPiniaPlugin(
         if (size(store.data) === 0) return;
 
         trigger_cache_save.value++;
+        const saveSequence = ++cacheSaveSequence;
+        activeCacheSaveSequence = saveSequence;
+        const identity = captureReadIdentity();
+
+        const isCurrentSave = () =>
+            !isDisposed
+            && saveSequence === activeCacheSaveSequence
+            && identity.generation === identityGeneration;
+
         const data: any = data_save ? data_save : { data: store.data ?? {}, ...includeInCacheValues.value };
         // cloneDeep (em vez de JSON round-trip) preserva Date, trata referências
         // circulares e desembrulha os proxies reativos do Vue para o structured-clone do localforage.
         const cleanData = cloneDeep(toRaw(data));
         status.value.cache.save.is_requesting = true;
         status.value.cache.save.is_requested = true;
-        storage
-            .setItem(getKey(), cleanData)
-            .then(() => {
+        status.value.cache.save.is_success = false;
+        status.value.cache.save.is_error = false;
+        status.value.cache.save.error = null;
+
+        try {
+            await storage.setItem(getKey(), cleanData);
+            if (isCurrentSave()) {
                 status.value.cache.save.is_requested = true;
                 status.value.cache.save.is_success = true;
-            })
-            .catch((error: any) => {
-                console.error('[max-pinia] SAVE CACHE ERROR: ' + error.name, error);
+            }
+        } catch (error: any) {
+            console.error('[max-pinia] SAVE CACHE ERROR: ' + error.name, error);
+            if (isCurrentSave()) {
                 status.value.cache.save.is_success = false;
                 status.value.cache.save.is_error = true;
                 status.value.cache.save.error = error;
-            })
-            .finally(() => {
+            }
+        } finally {
+            if (saveSequence === activeCacheSaveSequence && !isDisposed) {
                 status.value.cache.save.is_requested = true;
                 status.value.cache.save.is_requesting = false;
-            });
+            }
+        }
     };
 
     const postInDeduplication = () => store?.in_deduplication ?? store?.options?.in_deduplication ?? store?.in_save_deduplication ?? store?.options?.in_save_deduplication ?? store?.in_post_deduplication ?? store?.options?.in_post_deduplication ?? 'last';
@@ -555,13 +684,13 @@ function maxPiniaPlugin(
         return data_return;
     };
     const signal_post_request: Ref = ref(null);
-    const saveInServer = async () => {
+    const saveInServer = async (): Promise<void> => {
         cfg.onActivity();
-        const route_name: string | null = postRouteName();
-        const data_send = cloneDeep(toRaw(getPostData() ?? store.data) ?? {});
-
-        if (!route_name) return;
+        if (isDisposed) return;
         if (store.enabled === false || store.options?.enabled === false) return;
+        const route_name: string | null = postRouteName();
+        if (!route_name) return;
+        const data_send = cloneDeep(toRaw(getPostData() ?? store.data) ?? {});
         if (size(data_send) === 0) return;
 
         if (signal_post_request.value) {
@@ -575,8 +704,50 @@ function maxPiniaPlugin(
         status.value.server.save.is_requested = false;
         status.value.server.save.is_success = false;
         status.value.server.save.is_error = false;
+        status.value.server.save.error = null;
 
-        signal_post_request.value = new AbortController();
+        const requestController = new AbortController();
+        signal_post_request.value = requestController;
+
+        const identity = capturePostIdentity();
+        const requestSequence = ++postRequestSequence;
+        activePostRequestSequence = requestSequence;
+
+        const isCurrentPost = () =>
+            !isDisposed
+            && requestSequence === activePostRequestSequence
+            && !requestController.signal.aborted
+            && isPostIdentityCurrent(identity);
+
+        const finishCurrentPost = () => {
+            if (requestSequence === activePostRequestSequence) {
+                status.value.server.save.is_requesting = false;
+                status.value.server.save.is_requested = true;
+            }
+            if (signal_post_request.value === requestController) {
+                signal_post_request.value = null;
+            }
+        };
+
+        let axios: any;
+        let resolvedRouteUrl: string;
+        try {
+            axios = await getAxios();
+            resolvedRouteUrl = cfg.resolveRoute(route_name);
+        } catch (error: any) {
+            if (isCurrentPost()) {
+                status.value.server.save.is_error = true;
+                status.value.server.save.error = error;
+            }
+            finishCurrentPost();
+            return;
+        }
+
+        if (!isCurrentPost()) {
+            finishCurrentPost();
+            return;
+        }
+
         const sessionToken = cfg.getSessionToken();
         const headers: Record<string, string> = {
             Accept: 'application/json',
@@ -586,9 +757,11 @@ function maxPiniaPlugin(
         };
         const axiosConfig = {
             timeout: cfg.requestTimeout,
-            signal: signal_post_request.value.signal,
+            signal: requestController.signal,
             onDownloadProgress: (progressEvent: any) => {
-                progress_loading.value = progressEvent.loaded / progressEvent.total;
+                if (isCurrentPost()) {
+                    progress_loading.value = progressEvent.loaded / progressEvent.total;
+                }
             },
             headers,
             withCredentials: true
@@ -599,34 +772,45 @@ function maxPiniaPlugin(
             for (const k in remove) unset(data_send, remove[k]);
         }
 
-        const axios = await getAxios();
-        axios.post(cfg.resolveRoute(route_name), data_send, axiosConfig)
-            .then((response: any) => {
-                if (store.save_return) {
-                    pauseSave();
-                    if (typeof store.save_return === 'string' && store.data[store.save_return] !== response.data[store.save_return]) store.data = response.data;
-                    else if (store.save_return === true) store.data = response.data.original ?? response.data ?? {};
+        try {
+            const response = await axios.post(resolvedRouteUrl, data_send, axiosConfig);
+            if (!isCurrentPost()) return;
+
+            if (store.save_return) {
+                pauseSave();
+                try {
+                    if (typeof store.save_return === 'string' && store.data[store.save_return] !== response.data[store.save_return]) {
+                        store.data = response.data;
+                    } else if (store.save_return === true) {
+                        store.data = response.data.original ?? response.data ?? {};
+                    }
+                } finally {
                     resumeSave();
                 }
+            }
 
-                status.value.server.save.is_success = true;
-                status.value.server.save.is_error = false;
-                saveInCache()
-                    .then()
-                    .catch((error: any) => console.error('[max-pinia] SAVE IN CACHE ERROR: ' + error.name, error));
-                if (store.reload_after_save) loadInServer();
-                if (store.reload_after_save_default) store.reload_after_save = store.reload_after_save_default;
-            })
-            .catch((error: any) => {
+            status.value.server.save.is_success = true;
+            status.value.server.save.is_error = false;
+            status.value.server.save.error = null;
+
+            await saveInCache().catch((error: any) => console.error('[max-pinia] SAVE IN CACHE ERROR: ' + error.name, error));
+
+            if (isCurrentPost() && store.reload_after_save) {
+                void loadInServer();
+            }
+            if (store.reload_after_save_default) {
+                store.reload_after_save = store.reload_after_save_default;
+            }
+        } catch (error: any) {
+            if (isCurrentPost() && error.name !== 'CanceledError') {
                 console.error('[max-pinia] SAVE IN SERVER ERROR. Route: ' + route_name + ' - Error:' + error.name, error);
                 status.value.server.save.is_success = false;
                 status.value.server.save.is_error = true;
                 status.value.server.save.error = error;
-            })
-            .finally(() => {
-                status.value.server.save.is_requesting = false;
-                status.value.server.save.is_requested = true;
-            });
+            }
+        } finally {
+            finishCurrentPost();
+        }
     };
 
     let pauseDepth = 0;
@@ -646,26 +830,60 @@ function maxPiniaPlugin(
         });
     };
 
+    interface AutosaveToken {
+        generation: number;
+        key: string;
+        routeName: string | null;
+    }
+    let scheduledAutosaveToken: AutosaveToken | null = null;
+
     const countChanges: Ref = ref(0);
     watch(() => cloneDeep(store.data), (new_val, old_val) => {
+        if (isDisposed) return;
         if (is_save_in_pause.value || isBlank(old_val) || isBlank(new_val)) return;
         const isBlocked = store.block_save ?? store.no_save ?? store.noSave ?? store.blockSave ?? store.isList ?? store.is_list ?? false;
         if (isBlocked || isEqual(new_val, old_val)) return;
+
+        scheduledAutosaveToken = {
+            generation: identityGeneration,
+            key: getKey(),
+            routeName: postRouteName()
+        };
         countChanges.value += 1;
     });
 
-    watchDebounced(() => countChanges.value, () => saveInServer(), { debounce: 300 });
+    watchDebounced(() => countChanges.value, () => {
+        if (isDisposed) return;
+        if (!scheduledAutosaveToken) return;
+
+        const token = scheduledAutosaveToken;
+        scheduledAutosaveToken = null;
+
+        if (token.generation !== identityGeneration || token.key !== getKey() || token.routeName !== postRouteName()) {
+            return;
+        }
+
+        if (is_save_in_pause.value) return;
+        const isBlocked = store.block_save ?? store.no_save ?? store.noSave ?? store.blockSave ?? store.isList ?? store.is_list ?? false;
+        if (isBlocked) return;
+        if (store.enabled === false || store.options?.enabled === false) return;
+
+        void saveInServer();
+    }, { debounce: 300 });
 
     watch(key, (new_key, old_key) => {
         stopLoading(old_key, 'auto');
         stopLoading(new_key, 'auto');
     });
 
-    watch(() => [store.id, store.enabled, store.options?.enabled], () => {
+    watch([() => getKey(), () => store.enabled, () => store.options?.enabled], () => {
         identityGeneration++;
         activeServerRequestSequence = ++serverRequestSequence;
         activeCacheRequestSequence = ++cacheRequestSequence;
-        idx.value = store.id;
+        activePostRequestSequence = ++postRequestSequence;
+        activeCacheSaveSequence = ++cacheSaveSequence;
+        scheduledAutosaveToken = null;
+        idx.value = store.id ?? store.options?.id;
         pauseSave();
         setDefaultData();
         resumeSave();
@@ -677,23 +895,59 @@ function maxPiniaPlugin(
                 cancel_timer = null;
                 is_cancelling.value = false;
             }
-            if (signal_get_request.value) signal_get_request.value.abort();
+            if (signal_get_request.value) {
+                signal_get_request.value.abort();
+                signal_get_request.value = null;
+            }
+            if (signal_post_request.value) {
+                signal_post_request.value.abort();
+                signal_post_request.value = null;
+            }
             return;
         }
         loadInCache();
     }, { immediate: true, flush: 'sync' });
 
+    const disposePlugin = () => {
+        if (isDisposed) return;
+        isDisposed = true;
+        identityGeneration++;
+        activeServerRequestSequence = ++serverRequestSequence;
+        activeCacheRequestSequence = ++cacheRequestSequence;
+        activePostRequestSequence = ++postRequestSequence;
+        activeCacheSaveSequence = ++cacheSaveSequence;
+        scheduledAutosaveToken = null;
+
+        if (cancel_timer) {
+            clearTimeout(cancel_timer);
+            cancel_timer = null;
+            is_cancelling.value = false;
+        }
+
+        if (signal_get_request.value) {
+            signal_get_request.value.abort();
+            signal_get_request.value = null;
+        }
+        if (signal_post_request.value) {
+            signal_post_request.value.abort();
+            signal_post_request.value = null;
+        }
+
+        stopLoading(getKey(), 'dispose');
+        clearStatusTimers();
+    };
+
     if (store.$dispose) {
         const originalDispose = store.$dispose.bind(store);
         store.$dispose = () => {
-            clearStatusTimers();
+            disposePlugin();
             originalDispose();
         };
     }
 
     if (getCurrentScope()) {
         onScopeDispose(() => {
-            clearStatusTimers();
+            disposePlugin();
         });
     }
 
@@ -708,7 +962,7 @@ function maxPiniaPlugin(
         }
     };
 
-    return { idx, countChanges, key, setLoadingMessage, cancelLoad, is_save_in_pause, pauseSave, resumeSave, reload, clearAll, default_value, status, is_done, saveInServer, saveInCache, is_done_to_show } as any;
+    return { idx, countChanges, key, setLoadingMessage, cancelLoad, is_save_in_pause, pauseSave, resumeSave, reload, clearAll, default_value, setDefaultData, status, is_done, saveInServer, saveInCache, is_done_to_show } as any;
 }
 
 /** Hook utilitário: observa o status agregado emitido por qualquer store cacheada. */

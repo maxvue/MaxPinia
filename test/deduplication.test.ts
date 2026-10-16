@@ -176,6 +176,141 @@ describe('Estratégias de Deduplicação de Requisições', () => {
                 await vi.waitFor(() => expect(store.status.server.save.is_requested).toBe(true));
             }
         });
+
+        it('Caso 1.2: Estratégias "first" e "ignore" aceitam novo POST após conclusão da primeira requisição', async () => {
+            const strategies = ['first', 'ignore'] as const;
+
+            for (const strategy of strategies) {
+                let resolvePost1!: (val: any) => void;
+                const promise1 = new Promise((resolve) => { resolvePost1 = resolve; });
+                let resolvePost2!: (val: any) => void;
+                const promise2 = new Promise((resolve) => { resolvePost2 = resolve; });
+
+                const axiosPost = vi.fn()
+                    .mockReturnValueOnce(promise1)
+                    .mockReturnValueOnce(promise2);
+
+                const store = setupStore(
+                    { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                    () => {
+                        const isCached = ref(true);
+                        const in_save_deduplication = ref(strategy);
+                        const data = ref<Record<string, any>>({ val: 1 });
+                        const options = computed(() => ({ save: '/api/save' }));
+                        return { isCached, in_save_deduplication, data, options };
+                    }
+                );
+
+                await vi.advanceTimersByTimeAsync(10);
+
+                const p1 = store.saveInServer();
+                await vi.waitFor(() => expect(axiosPost).toHaveBeenCalledTimes(1));
+
+                resolvePost1({ data: { ok: true } });
+                await p1;
+                expect(store.status.server.save.is_requesting).toBe(false);
+
+                const p2 = store.saveInServer();
+                await vi.waitFor(() => expect(axiosPost).toHaveBeenCalledTimes(2));
+
+                resolvePost2({ data: { ok: true } });
+                await p2;
+                expect(store.status.server.save.is_requesting).toBe(false);
+            }
+        });
+
+        it('Caso 1.3: Resposta tardia de POST obsoleto/cancelado com save_return não altera dados atuais', async () => {
+            let resolvePost1!: (val: any) => void;
+            const promise1 = new Promise((resolve) => { resolvePost1 = resolve; });
+            let resolvePost2!: (val: any) => void;
+            const promise2 = new Promise((resolve) => { resolvePost2 = resolve; });
+
+            const axiosPost = vi.fn()
+                .mockReturnValueOnce(promise1)
+                .mockReturnValueOnce(promise2);
+
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const save_return = ref(true);
+                    const in_save_deduplication = ref('last');
+                    const data = ref<Record<string, any>>({ recordId: 'initial', text: 'v0' });
+                    const options = computed(() => ({ save: '/api/save' }));
+                    return { isCached, save_return, in_save_deduplication, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            store.saveInServer();
+            await vi.waitFor(() => expect(axiosPost).toHaveBeenCalledTimes(1));
+
+            store.data.text = 'v2-editing';
+            const p2 = store.saveInServer();
+            await vi.waitFor(() => expect(axiosPost).toHaveBeenCalledTimes(2));
+
+            // Resposta tardia de POST 1 chega
+            resolvePost1({ data: { recordId: 'stale-1', text: 'stale-data' } });
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Dados não devem ser substituídos pelo POST 1 obsoleto
+            expect(store.data.text).toBe('v2-editing');
+
+            // POST 2 é respondido
+            resolvePost2({ data: { recordId: 'saved-2', text: 'valid-v2' } });
+            await p2;
+
+            expect(store.data.text).toBe('valid-v2');
+            expect(store.status.server.save.is_success).toBe(true);
+        });
+
+        it('Caso 1.4: Finalização de POST anterior em voo não desativa is_requesting da nova requisição', async () => {
+            let resolvePost1!: (val: any) => void;
+            const promise1 = new Promise((resolve) => { resolvePost1 = resolve; });
+            let resolvePost2!: (val: any) => void;
+            const promise2 = new Promise((resolve) => { resolvePost2 = resolve; });
+
+            const axiosPost = vi.fn()
+                .mockReturnValueOnce(promise1)
+                .mockReturnValueOnce(promise2);
+
+            const store = setupStore(
+                { axios: { get: vi.fn().mockResolvedValue({ data: {} }), post: axiosPost } as any },
+                () => {
+                    const isCached = ref(true);
+                    const in_save_deduplication = ref('last');
+                    const data = ref<Record<string, any>>({ val: 1 });
+                    const options = computed(() => ({ save: '/api/save' }));
+                    return { isCached, in_save_deduplication, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            store.saveInServer();
+            await vi.waitFor(() => expect(axiosPost).toHaveBeenCalledTimes(1));
+            expect(store.status.server.save.is_requesting).toBe(true);
+
+            const p2 = store.saveInServer();
+            await vi.waitFor(() => expect(axiosPost).toHaveBeenCalledTimes(2));
+            expect(store.status.server.save.is_requesting).toBe(true);
+
+            // POST 1 finaliza (abortado)
+            resolvePost1({ data: {} });
+            await vi.advanceTimersByTimeAsync(10);
+
+            // is_requesting deve continuar true porque POST 2 ainda está em voo
+            expect(store.status.server.save.is_requesting).toBe(true);
+
+            // POST 2 finaliza
+            resolvePost2({ data: { ok: true } });
+            await p2;
+            await vi.advanceTimersByTimeAsync(10);
+
+            expect(store.status.server.save.is_requesting).toBe(false);
+            expect(store.status.server.save.is_success).toBe(true);
+        });
     });
 
     describe('Deduplicação em GET (loadInServer)', () => {
@@ -493,11 +628,11 @@ describe('Estratégias de Deduplicação de Requisições', () => {
             await vi.waitFor(() => expect(removeItemSpy).toHaveBeenCalled());
         });
 
-        it('Caso 10: Falha ao ler cache (getItem reject) atualiza status.cache.get', async () => {
+        it('Caso 10: Falha ao ler cache (getItem reject) atualiza status.cache.get e realiza fallback para servidor', async () => {
             const localforage = (await import('localforage')).default;
             vi.spyOn(localforage, 'getItem').mockRejectedValueOnce(new Error('IndexedDB blocked'));
 
-            const axiosGet = vi.fn().mockResolvedValue({ data: {} });
+            const axiosGet = vi.fn().mockResolvedValue({ data: { serverFallback: true } });
             const store = setupStore(
                 { axios: { get: axiosGet, post: vi.fn() } as any },
                 () => {
@@ -513,6 +648,63 @@ describe('Estratégias de Deduplicação de Requisições', () => {
 
             expect(store.status.cache.get.is_error).toBe(true);
             expect(store.status.cache.get.is_success).toBe(false);
+
+            // C: Fallback para GET no backend ocorre exatamente uma vez
+            await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledTimes(1));
+            expect(store.status.server.get.is_success).toBe(true);
+            expect(store.data).toEqual({ serverFallback: true });
+        });
+
+        it('Caso 10.1: Nova leitura de cache após erro limpa flags de erro anteriores', async () => {
+            const localforage = (await import('localforage')).default;
+            vi.spyOn(localforage, 'getItem')
+                .mockRejectedValueOnce(new Error('IDB temporarily unavailable'))
+                .mockResolvedValueOnce({ data: { recovered: true } });
+
+            const axiosGet = vi.fn().mockResolvedValue({ data: {} });
+            const store = setupStore(
+                { axios: { get: axiosGet, post: vi.fn() } as any },
+                () => {
+                    const isCached = ref(true);
+                    const only_cache = ref(true);
+                    const id = ref('item-1');
+                    const data = ref<Record<string, any>>({});
+                    const options = computed(() => ({ get: { route: '/api/data' } }));
+                    return { isCached, only_cache, id, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+            await vi.waitFor(() => expect(store.status.cache.get.is_error).toBe(true));
+
+            // Troca de identidade para nova leitura
+            store.id = 'item-2';
+            await vi.advanceTimersByTimeAsync(10);
+            await vi.waitFor(() => expect(store.status.cache.get.is_success).toBe(true));
+
+            expect(store.status.cache.get.is_error).toBe(false);
+            expect(store.status.cache.get.error).toBe(null);
+            expect(store.data).toEqual({ recovered: true });
+        });
+
+        it('Caso 10.2: Falha ao ler cache com store desabilitada não dispara fallback ao servidor', async () => {
+            const localforage = (await import('localforage')).default;
+            vi.spyOn(localforage, 'getItem').mockRejectedValueOnce(new Error('IDB error'));
+
+            const axiosGet = vi.fn().mockResolvedValue({ data: {} });
+            const store = setupStore(
+                { axios: { get: axiosGet, post: vi.fn() } as any },
+                () => {
+                    const isCached = ref(true);
+                    const enabled = ref(false);
+                    const data = ref<Record<string, any>>({});
+                    const options = computed(() => ({ get: { route: '/api/data' } }));
+                    return { isCached, enabled, data, options };
+                }
+            );
+
+            await vi.advanceTimersByTimeAsync(10);
+            expect(axiosGet).not.toHaveBeenCalled();
         });
 
         it('Caso 11: Loading adapter e watchValid de loading_options.message', async () => {
@@ -582,6 +774,9 @@ describe('Estratégias de Deduplicação de Requisições', () => {
         });
 
         it('Caso 13: Lazy loading de axios quando não provido na config inicial', async () => {
+            const axios = (await import('axios')).default;
+            const postSpy = vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: { success: true } });
+
             const store = setupStore(
                 {}, // sem axios na config
                 () => {
@@ -595,6 +790,8 @@ describe('Estratégias de Deduplicação de Requisições', () => {
             await vi.advanceTimersByTimeAsync(10);
             // Salvar no servidor acionará resolve() e import lazy do axios
             await store.saveInServer().catch(() => {});
+            expect(postSpy).toHaveBeenCalled();
+            postSpy.mockRestore();
         });
 
         it('Caso 14: isShallow com dados carregados do cache', async () => {
